@@ -1,0 +1,1 @@
+ALTER TABLE "submission_tokens" ADD CONSTRAINT "submission_tokens_race_id_school_id_unique" UNIQUE("race_id","school_id");

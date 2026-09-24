@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790194405694,
+      "tag": "0000_legal_ikaris",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790194426497,
+      "tag": "0001_enable_trgm",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790197352909,
+      "tag": "0002_motionless_zzzax",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790197451901,
+      "tag": "0003_abandoned_albert_cleary",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,130 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { and, eq } from "drizzle-orm";
+import { getDb } from "@/db/client";
+import { events, races } from "@/db/schema";
+import { getPublishedRaceResults } from "@/lib/public-results";
+
+export const dynamic = "force-dynamic";
+
+// A single [id] segment serves both /results/[eventId] and /results/[raceId] from
+// the spec — Next.js forbids two differently-named dynamic segments as siblings, and
+// both ids are plain UUIDs from different tables, so we disambiguate by lookup order.
+export default async function ResultsPage({ params }: { params: { id: string } }) {
+  const db = getDb();
+
+  const [race] = await db.select().from(races).where(eq(races.id, params.id));
+  if (race) {
+    if (race.status !== "closed") notFound();
+    return <RaceResults raceId={race.id} yearGroup={race.yearGroup} gender={race.gender} />;
+  }
+
+  const [event] = await db.select().from(events).where(eq(events.id, params.id));
+  if (event) {
+    return <EventRaceList eventId={event.id} eventName={event.name} eventDate={event.date} />;
+  }
+
+  notFound();
+}
+
+async function EventRaceList({
+  eventId,
+  eventName,
+  eventDate,
+}: {
+  eventId: string;
+  eventName: string;
+  eventDate: string;
+}) {
+  const db = getDb();
+  const closedRaces = await db
+    .select()
+    .from(races)
+    .where(and(eq(races.eventId, eventId), eq(races.status, "closed")));
+
+  return (
+    <main className="mx-auto max-w-2xl p-6">
+      <h1 className="text-2xl font-bold">
+        {eventName} — {eventDate}
+      </h1>
+      <ul className="mt-4 space-y-1">
+        {closedRaces.map((race) => (
+          <li key={race.id}>
+            <Link className="text-blue-600 underline" href={`/results/${race.id}`}>
+              {race.yearGroup.toUpperCase()} · {race.gender}
+            </Link>
+          </li>
+        ))}
+        {closedRaces.length === 0 && (
+          <p className="text-gray-600">No results published yet.</p>
+        )}
+      </ul>
+    </main>
+  );
+}
+
+async function RaceResults({
+  raceId,
+  yearGroup,
+  gender,
+}: {
+  raceId: string;
+  yearGroup: string;
+  gender: string;
+}) {
+  const { individual, teams } = await getPublishedRaceResults(raceId);
+
+  return (
+    <main className="mx-auto max-w-2xl space-y-6 p-6">
+      <h1 className="text-2xl font-bold">
+        {yearGroup.toUpperCase()} · {gender}
+      </h1>
+
+      <section>
+        <h2 className="font-semibold">Individual results</h2>
+        <table className="mt-1 w-full text-sm">
+          <thead>
+            <tr className="text-left">
+              <th className="py-1">Pos</th>
+              <th className="py-1">Runner</th>
+              <th className="py-1">School</th>
+            </tr>
+          </thead>
+          <tbody>
+            {individual.map((r) => (
+              <tr key={r.id} className="border-t">
+                <td className="py-1">{r.position}</td>
+                <td className="py-1">{r.runnerName}</td>
+                <td className="py-1">{r.schoolName}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2 className="font-semibold">Team results</h2>
+        <table className="mt-1 w-full text-sm">
+          <thead>
+            <tr className="text-left">
+              <th className="py-1">Rank</th>
+              <th className="py-1">School</th>
+              <th className="py-1">Scorers</th>
+              <th className="py-1">Points</th>
+            </tr>
+          </thead>
+          <tbody>
+            {teams.map((t) => (
+              <tr key={t.id} className="border-t">
+                <td className="py-1">{t.rank}</td>
+                <td className="py-1">{t.schoolName}</td>
+                <td className="py-1">{t.scoringCount}</td>
+                <td className="py-1">{t.scoreSum}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+    </main>
+  );
+}
