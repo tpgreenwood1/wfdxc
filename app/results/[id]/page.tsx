@@ -73,6 +73,14 @@ async function RaceResults({
   gender: string;
 }) {
   const { individual, teams } = await getPublishedRaceResults(raceId);
+  // Shared places (accepted ties, equal team scores) show as "=5".
+  const shared = (values: number[]) => {
+    const counts = new Map<number, number>();
+    for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+    return (v: number) => ((counts.get(v) ?? 0) > 1 ? `=${v}` : String(v));
+  };
+  const showPosition = shared(individual.map((r) => r.position));
+  const showRank = shared(teams.map((t) => t.rank));
 
   return (
     <main className="mx-auto max-w-2xl space-y-6 p-6">
@@ -93,7 +101,7 @@ async function RaceResults({
           <tbody>
             {individual.map((r) => (
               <tr key={r.id} className="border-t">
-                <td className="py-1">{r.position}</td>
+                <td className="py-1">{showPosition(r.position)}</td>
                 <td className="py-1">{r.runnerName}</td>
                 <td className="py-1">{r.schoolName}</td>
               </tr>
@@ -116,7 +124,7 @@ async function RaceResults({
           <tbody>
             {teams.map((t) => (
               <tr key={t.id} className="border-t">
-                <td className="py-1">{t.rank}</td>
+                <td className="py-1">{showRank(t.rank)}</td>
                 <td className="py-1">{t.schoolName}</td>
                 <td className="py-1">{t.scoringCount}</td>
                 <td className="py-1">{t.scoreSum}</td>

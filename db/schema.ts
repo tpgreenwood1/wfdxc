@@ -30,6 +30,12 @@ export const raceStatusEnum = pgEnum("race_status", [
 export const schools = pgTable("schools", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),
+  // URL name for the teacher home page (/school/[slug]). Set once at creation and
+  // deliberately not updated on rename, so bookmarked links keep working.
+  slug: text("slug").notNull().unique(),
+  // Short code a teacher types once per phone to unlock /school/[slug]. Stored in
+  // plain text so the admin can read it out; regenerating it logs out every device.
+  accessCode: text("access_code").notNull(),
 });
 
 export const seasons = pgTable("seasons", {
@@ -185,6 +191,56 @@ export const dismissedMergeCandidates = pgTable(
   },
   (table) => ({
     pairUnique: unique().on(table.runnerAId, table.runnerBId),
+  })
+);
+
+export const positionAckKindEnum = pgEnum("position_ack_kind", ["tie", "gap"]);
+
+// The admin's "this is fine" on a flagged place in a race: 'tie' = two runners share
+// this position and both keep it; 'gap' = nobody from a league school finished here
+// (non-league runner, lost ticket). Acknowledged places stop counting as open issues.
+export const racePositionAcks = pgTable(
+  "race_position_acks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    raceId: uuid("race_id")
+      .notNull()
+      .references(() => races.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    kind: positionAckKindEnum("kind").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    racePositionKindUnique: unique().on(table.raceId, table.position, table.kind),
+  })
+);
+
+export const raceSchoolStateEnum = pgEnum("race_school_state", ["done", "no_runners"]);
+
+// A school's confirmation for one race: 'done' = all its runners are entered,
+// 'no_runners' = it had nobody in this race. Absent = still entering / not started.
+// Lets the admin chase list tell "hasn't entered yet" apart from "had no runners".
+export const raceSchoolStatus = pgTable(
+  "race_school_status",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    raceId: uuid("race_id")
+      .notNull()
+      .references(() => races.id, { onDelete: "cascade" }),
+    schoolId: uuid("school_id")
+      .notNull()
+      .references(() => schools.id, { onDelete: "cascade" }),
+    state: raceSchoolStateEnum("state").notNull(),
+    setBy: text("set_by").notNull(), // 'teacher' | 'admin'
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    raceSchoolUnique: unique().on(table.raceId, table.schoolId),
   })
 );
 

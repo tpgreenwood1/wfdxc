@@ -6,7 +6,8 @@ import { races } from "@/db/schema";
 import { resolveToken } from "@/lib/tokens";
 import { getOrCreateHubToken } from "@/lib/hubTokens";
 import { getResultsForSchoolInRace, getSchoolRoster } from "@/lib/results";
-import SubmitForm from "./SubmitForm";
+import SubmitForm from "@/app/components/SubmitForm";
+import { removeResult, renameRunnerAction, saveResult, searchOtherSchoolsAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,10 @@ export default async function SubmitPage({
       )}
 
       <SubmitForm
-        token={params.token}
+        onSaveRow={saveResult.bind(null, params.token)}
+        onRemove={removeResult.bind(null, params.token)}
+        onRename={renameRunnerAction.bind(null, params.token)}
+        onSearchOtherSchools={searchOtherSchoolsAction.bind(null, params.token)}
         isEditable={ctx.isEditable}
         initialResults={existingResults}
         roster={roster}

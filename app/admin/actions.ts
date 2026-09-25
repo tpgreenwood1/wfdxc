@@ -1,23 +1,35 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { events, races, results, runners, schools, seasons } from "@/db/schema";
-import { createEvent } from "@/lib/events";
+import { createEvent, GENDERS, YEAR_GROUPS, type RaceSpec } from "@/lib/events";
+import { createSchool, regenerateAccessCode, renameSchool } from "@/lib/schools";
+import type { Gender, YearGroup } from "@/lib/types";
+
+/** Returned instead of thrown so the admin sees the actual reason — Next replaces
+ * thrown server-action messages with a generic error in production. */
+export type AdminActionResult = { error?: string };
+
+/** Every admin page that lists schools/events/seasons. */
+function revalidateAdmin() {
+  revalidatePath("/admin", "layout");
+}
 
 export async function createSeasonAction(formData: FormData): Promise<void> {
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Season name is required");
   const db = getDb();
   await db.insert(seasons).values({ name });
-  revalidatePath("/admin");
+  revalidateAdmin();
 }
 
 export async function updateMinRacesAction(formData: FormData): Promise<void> {
   const seasonId = String(formData.get("seasonId"));
   const minRacesRequired = Number(formData.get("minRacesRequired"));
-  if (!seasonId || !Number.isFinite(minRacesRequired)) {
+  if (!seasonId || !Number.isInteger(minRacesRequired) || minRacesRequired < 0) {
     throw new Error("Invalid input");
   }
   const db = getDb();
@@ -25,8 +37,18 @@ export async function updateMinRacesAction(formData: FormData): Promise<void> {
     .update(seasons)
     .set({ minRacesRequired })
     .where(eq(seasons.id, seasonId));
-  revalidatePath("/admin");
+  revalidateAdmin();
   revalidatePath("/standings");
+}
+
+/** Race checkboxes post "y3:girls"-style values; none ticked means every race. */
+function parseRaceSpecs(values: FormDataEntryValue[]): RaceSpec[] {
+  return values
+    .map((v) => String(v).split(":"))
+    .filter(
+      ([y, g]) => YEAR_GROUPS.includes(y as YearGroup) && GENDERS.includes(g as Gender)
+    )
+    .map(([y, g]) => ({ yearGroup: y as YearGroup, gender: g as Gender }));
 }
 
 export async function createEventAction(formData: FormData): Promise<void> {
@@ -36,17 +58,38 @@ export async function createEventAction(formData: FormData): Promise<void> {
   const location = String(formData.get("location") ?? "").trim() || undefined;
   if (!seasonId || !name || !date) throw new Error("Missing required fields");
 
-  const { eventId } = await createEvent({ seasonId, name, date, location });
-  revalidatePath("/admin");
-  revalidatePath(`/admin/events/${eventId}`);
+  const { eventId } = await createEvent({
+    seasonId,
+    name,
+    date,
+    location,
+    races: parseRaceSpecs(formData.getAll("races")),
+  });
+  revalidateAdmin();
+  redirect(`/admin/events/${eventId}`);
 }
 
 export async function createSchoolAction(formData: FormData): Promise<void> {
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("School name is required");
-  const db = getDb();
-  await db.insert(schools).values({ name });
-  revalidatePath("/admin");
+  await createSchool(name);
+  revalidateAdmin();
+}
+
+export async function renameSchoolAction(formData: FormData): Promise<void> {
+  const schoolId = String(formData.get("schoolId"));
+  const name = String(formData.get("name") ?? "");
+  await renameSchool(schoolId, name);
+  revalidateAdmin();
+  revalidatePath("/school/[slug]", "layout");
+}
+
+/** New access code for a school's home page — logs out every teacher device unlocked
+ * with the old code, e.g. if the teacher link was forwarded somewhere it shouldn't be. */
+export async function regenerateSchoolCodeAction(formData: FormData): Promise<void> {
+  const schoolId = String(formData.get("schoolId"));
+  await regenerateAccessCode(schoolId);
+  revalidateAdmin();
 }
 
 /**
@@ -55,7 +98,7 @@ export async function createSchoolAction(formData: FormData): Promise<void> {
  * be deleted here — those need merging/reassigning first. Submission tokens for the
  * school cascade-delete automatically.
  */
-export async function deleteSchoolAction(formData: FormData): Promise<void> {
+export async function deleteSchoolAction(formData: FormData): Promise<AdminActionResult> {
   const schoolId = String(formData.get("schoolId"));
   const db = getDb();
 
@@ -69,13 +112,14 @@ export async function deleteSchoolAction(formData: FormData): Promise<void> {
     .where(eq(results.schoolId, schoolId));
 
   if (runnerCount.count > 0 || resultCount.count > 0) {
-    throw new Error(
-      `Can't delete this school — it has ${runnerCount.count} runner(s) and ${resultCount.count} result(s) attached. Reassign or merge those first.`
-    );
+    return {
+      error: `Can't delete this school — it has ${runnerCount.count} runner(s) and ${resultCount.count} result(s). Move or merge those runners first (Runners page).`,
+    };
   }
 
   await db.delete(schools).where(eq(schools.id, schoolId));
-  revalidatePath("/admin");
+  revalidateAdmin();
+  return {};
 }
 
 /**
@@ -84,7 +128,7 @@ export async function deleteSchoolAction(formData: FormData): Promise<void> {
  * Guarded the same way as school deletion: refuse if any of the event's races have
  * submitted results, so this only ever removes an empty (e.g. duplicate test) event.
  */
-export async function deleteEventAction(formData: FormData): Promise<void> {
+export async function deleteEventAction(formData: FormData): Promise<AdminActionResult> {
   const eventId = String(formData.get("eventId"));
   const db = getDb();
 
@@ -95,11 +139,12 @@ export async function deleteEventAction(formData: FormData): Promise<void> {
     .where(eq(races.eventId, eventId));
 
   if (resultCount.count > 0) {
-    throw new Error(
-      `Can't delete this event — it has ${resultCount.count} result(s) submitted across its races. Cancel or reassign those first.`
-    );
+    return {
+      error: `Can't delete this event — it has ${resultCount.count} result(s) entered. Cancel its races instead.`,
+    };
   }
 
   await db.delete(events).where(eq(events.id, eventId));
-  revalidatePath("/admin");
+  revalidateAdmin();
+  return {};
 }

@@ -111,7 +111,7 @@ Closing a race triggers a **publish** step, not just a status flip: individual a
 
 - The public page and season standings read **only** from the published tables — never from live `results`/`runners`/`schools` — so they're unaffected by later transfers, merges, or pruning, and there's no live-join bug risk on historical data.
 - Published rows are permanent. The source tables can be safely pruned in later seasons without losing anything already published.
-- The source `results` row for a closed race can, in theory, still be edited by the admin afterward for record-keeping accuracy — but this does **not** automatically regenerate the published snapshot. An explicit **republish** admin action re-runs the computation and overwrites that race's published rows. Nothing recalculates on every read anymore.
+- The admin can still correct a closed race's results afterwards. **Decided:** every admin edit to a closed race republishes it immediately (the admin is deliberately correcting it, so there's no separate step to forget); renaming or merging a runner republishes their closed races too. Nothing recalculates on every read.
 
 ## Entry flow (teachers)
 
@@ -120,10 +120,21 @@ No login system. Each school gets a unique tokenised link per race (`/submit/[to
 The form:
 
 - Scoped to that school + that race
-- Runner picker defaults to that school's roster, but supports fuzzy search **across all runners in the league**, not just this school's — needed to handle mid-season transfers (a teacher entering a kid who just joined their school but hasn't been re-homed in the roster yet)
+- Runner picker shows that school's roster, and typing filters it instantly on the device (no server round trip). If nobody matches, an explicit "Search other schools" button runs a fuzzy search **across all runners in the league** — needed to handle mid-season transfers (a teacher entering a kid who just joined their school but hasn't been re-homed in the roster yet)
 - Supports quick-adding a brand new runner not in the system at all
-- Each row: runner + finishing position (plain integer, no validation against other schools' entries — duplicates are allowed at entry time and resolved centrally)
+- Each row: runner + finishing position (whole number ≥ 1, no validation against other schools' entries — duplicates are allowed at entry time and resolved centrally; the form warns if two of the school's own runners share a position)
+- Keyboard/tap loop: pick a runner → their position box is focused → Enter returns to the search box. Each row autosaves once it has a position, so there's no Save button and moving between races never loses work
 - Freely re-editable while the race is `open`; locks to read-only once `closed`
+
+### School home page (`/school/[slug]`)
+
+The main teacher surface, built on top of the per-race form. One permanent page per school for the whole season, mobile-first for race day, with three tabs:
+
+- **Races** — the current event (today's, else the next upcoming, else the most recent), one row per year group with big Boys / Girls buttons showing "Enter results", "✓ n entered", "Results →" (closed) or "Cancelled"; other events this season below. Each race opens `/school/[slug]/race/[raceId]` (same entry form, editable while the race is `open`) with Prev / Next race buttons.
+- **Runners** — add one or several children, fix spellings, retire leavers (soft-delete) and bring them back.
+- **Results** — this school's published team placings and runner positions for the season, linking to full race results and standings.
+
+Access: readable URL plus a short per-school access code, entered once per device (remembered for a year) or carried in the admin's "teacher link" (`/school/[slug]/join?code=…`). Regenerating the code in admin revokes every device. Existing per-event hub links unlock and redirect to this page.
 
 ## Admin (scorer) views
 
@@ -141,6 +152,10 @@ The form:
 - Simple rename (no merge) also supported directly on a runner record, for a typo that was never entered as two separate rows
 
 **Race status controls**: open/close/cancel a race; edit `season.min_races_required`.
+
+**Ties and missing places (decided):** two runners recorded on the same place both keep that place and its points — the admin taps "Accept tie" so it stops being flagged. A missing place can be filled with a runner or marked "no one to add" (non-league runner, lost ticket). Equal team scores share a rank and the next rank is skipped (1, 1, 3).
+
+**Chasing schools:** teachers can mark a race "No runners" and tap "We're done" for an event; the admin's chase list combines that with what's been entered to show which schools still owe results, with a one-tap Share reminder containing their link and code.
 
 ## Scoring logic
 
@@ -210,5 +225,5 @@ Handled by the schema as-is, no special-casing needed:
 1. Points-for-place vs sum-of-positions for season standings (recommend points-for-place).
 2. Whether year-group/gender category needs to be locked per-race or can be read live off the roster.
 3. Confirm season standings are per (year_group, gender) only, not also aggregated across categories.
-4. Republish behaviour: should editing a closed race's source result ever auto-regenerate the published snapshot, or always require an explicit "republish" action (current assumption)? Should the admin UI warn when live `results` for a closed race have diverged from what's currently published?
+4. ~~Republish behaviour~~ — decided: admin edits to a closed race republish it automatically.
 5. Pruning specifics: how long should `results`/`runners`/`schools` data stay live before pruning, and is pruning a manual admin action or something scheduled?

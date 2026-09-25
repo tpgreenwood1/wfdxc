@@ -1,6 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { races, results, runners, schools } from "@/db/schema";
+import { races, raceSchoolStatus, results, runners, schools } from "@/db/schema";
+import { quickAddRunner } from "./runners";
 
 export type RosterRunner = {
   id: string;
@@ -83,24 +84,113 @@ export async function upsertResult(input: {
   return row;
 }
 
+/** Admin-only: unscoped delete of any result. Teacher-facing paths must use
+ * deleteResultForSchool instead. */
 export async function deleteResult(resultId: string): Promise<void> {
   const db = getDb();
   await db.delete(results).where(eq(results.id, resultId));
 }
 
-/** Race ids this school has submitted at least one result for, across every race in
- * the event — used to derive each hub-page row's "not started" / "submitted" status. */
-export async function getSubmittedRaceIdsForSchool(
+/** Scoped to (race, school) so a teacher can only ever delete their own school's
+ * result in the race they're editing — the result id alone comes from the client and
+ * can't be trusted. */
+export async function deleteResultForSchool(
+  resultId: string,
+  raceId: string,
+  schoolId: string
+): Promise<void> {
+  const db = getDb();
+  await db
+    .delete(results)
+    .where(
+      and(
+        eq(results.id, resultId),
+        eq(results.raceId, raceId),
+        eq(results.schoolId, schoolId)
+      )
+    );
+}
+
+export type SaveResultRow = {
+  runnerId: string | null;
+  newRunnerName?: string;
+  position: number;
+};
+
+export function isValidPosition(position: number): boolean {
+  return Number.isInteger(position) && position >= 1;
+}
+
+/** The teacher-entry save path, shared by the per-race token form and the school home
+ * page. Saves one row at a time (the form autosaves each runner as their position is
+ * typed): quick-adds a brand-new runner onto this school's roster if needed, then
+ * upserts with results.school_id = the submitting school (the historical record). */
+export async function saveSchoolResult(input: {
+  raceId: string;
+  schoolId: string;
+  schoolName: string;
+  row: SaveResultRow;
+}): Promise<SubmittedResult> {
+  const { row } = input;
+  if (!isValidPosition(row.position)) {
+    throw new Error("Position must be a whole number, 1 or more.");
+  }
+
+  const db = getDb();
+  let runnerId: string;
+  let runnerName: string;
+  if (row.runnerId) {
+    const [runner] = await db
+      .select({ name: runners.name })
+      .from(runners)
+      .where(eq(runners.id, row.runnerId));
+    if (!runner) throw new Error("That runner no longer exists — refresh the page.");
+    runnerId = row.runnerId;
+    runnerName = runner.name;
+  } else {
+    if (!row.newRunnerName?.trim()) throw new Error("Pick a runner first.");
+    const created = await quickAddRunner(input.schoolId, row.newRunnerName);
+    runnerId = created.id;
+    runnerName = created.name;
+  }
+
+  const [saved] = await Promise.all([
+    upsertResult({
+      raceId: input.raceId,
+      runnerId,
+      schoolId: input.schoolId,
+      position: row.position,
+      submittedBy: input.schoolName,
+    }),
+    // A school that said "no runners" and then enters one clearly did have runners.
+    db
+      .delete(raceSchoolStatus)
+      .where(
+        and(
+          eq(raceSchoolStatus.raceId, input.raceId),
+          eq(raceSchoolStatus.schoolId, input.schoolId),
+          eq(raceSchoolStatus.state, "no_runners")
+        )
+      ),
+  ]);
+
+  return { id: saved.id, runnerId, runnerName, position: row.position };
+}
+
+/** How many runners this school has entered in each race of the event — drives the
+ * school home page's "✓ 6 entered" race buttons. Races with none are absent. */
+export async function getEntryCountsForSchool(
   eventId: string,
   schoolId: string
-): Promise<Set<string>> {
+): Promise<Map<string, number>> {
   const db = getDb();
   const rows = await db
-    .selectDistinct({ raceId: results.raceId })
+    .select({ raceId: results.raceId, count: sql<number>`count(*)::int` })
     .from(results)
     .innerJoin(races, eq(results.raceId, races.id))
-    .where(and(eq(races.eventId, eventId), eq(results.schoolId, schoolId)));
-  return new Set(rows.map((r) => r.raceId));
+    .where(and(eq(races.eventId, eventId), eq(results.schoolId, schoolId)))
+    .groupBy(results.raceId);
+  return new Map(rows.map((r) => [r.raceId, r.count]));
 }
 
 /** (raceId, schoolId) pairs with at least one submitted result, across the whole
@@ -115,6 +205,23 @@ export async function getSubmissionStatusMatrix(
     .innerJoin(races, eq(results.raceId, races.id))
     .where(eq(races.eventId, eventId));
   return new Set(rows.map((r) => `${r.raceId}:${r.schoolId}`));
+}
+
+/** `${raceId}:${schoolId}` -> number of results entered, across the whole event —
+ * backs the admin race board and chase list. Cells with none are absent. */
+export async function getEntryCountMatrix(eventId: string): Promise<Map<string, number>> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      raceId: results.raceId,
+      schoolId: results.schoolId,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(results)
+    .innerJoin(races, eq(results.raceId, races.id))
+    .where(eq(races.eventId, eventId))
+    .groupBy(results.raceId, results.schoolId);
+  return new Map(rows.map((r) => [`${r.raceId}:${r.schoolId}`, r.count]));
 }
 
 export type AdminResultRow = {

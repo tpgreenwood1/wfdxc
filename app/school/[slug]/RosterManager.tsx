@@ -3,199 +3,275 @@
 import { useState, useTransition } from "react";
 import type { RosterRunner } from "@/lib/results";
 import {
-  addRosterRunnerAction,
-  reactivateRosterRunnerAction,
-  renameRosterRunnerAction,
-  retireRosterRunnerAction,
+  addRunnersAction,
+  reactivateRunnerAction,
+  renameRunnerAction,
+  retireRunnerAction,
 } from "./actions";
 
+function byName(a: RosterRunner, b: RosterRunner) {
+  return a.name.localeCompare(b.name);
+}
+
+function RunnerName({ r }: { r: RosterRunner }) {
+  return (
+    <span className="min-w-0 flex-1 truncate">
+      {r.name}
+      {r.duplicateCount > 1 && (
+        <span className="ml-1 text-xs text-gray-500">({r.duplicateIndex})</span>
+      )}
+    </span>
+  );
+}
+
 export default function RosterManager({
-  token,
+  slug,
   initialRoster,
 }: {
-  token: string;
+  slug: string;
   initialRoster: RosterRunner[];
 }) {
   const [roster, setRoster] = useState(initialRoster);
   const [newName, setNewName] = useState("");
+  const [bulkMode, setBulkMode] = useState(false);
+  const [filter, setFilter] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [showRetired, setShowRetired] = useState(false);
+  const [message, setMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const active = roster.filter((r) => !r.isRetired);
+  const retired = roster.filter((r) => r.isRetired);
+  const filterText = filter.trim().toLowerCase();
+  const visibleActive = filterText
+    ? active.filter((r) => r.name.toLowerCase().includes(filterText))
+    : active;
+
+  function fail(err: unknown, fallback: string) {
+    setMessage({ text: err instanceof Error ? err.message : fallback, isError: true });
+  }
+
   function handleAdd() {
-    const name = newName.trim();
-    if (!name) return;
-    const exactMatch = roster.find(
-      (r) => r.name.trim().toLowerCase() === name.toLowerCase()
-    );
-    if (exactMatch) {
-      const proceed = confirm(
-        `There's already a "${exactMatch.name}" on your roster. Add "${name}" as a new, different runner anyway?`
-      );
-      if (!proceed) return;
+    const names = (bulkMode ? newName.split(/\r?\n/) : [newName])
+      .map((n) => n.trim())
+      .filter(Boolean);
+    if (names.length === 0) return;
+
+    const existing = new Set(active.map((r) => r.name.trim().toLowerCase()));
+    const clashes = names.filter((n) => existing.has(n.toLowerCase()));
+    if (
+      clashes.length > 0 &&
+      !confirm(
+        `Already on your list: ${clashes.join(", ")}. Add ${
+          clashes.length === 1 ? "them" : "these"
+        } again as different children anyway?`
+      )
+    ) {
+      return;
     }
+
     setMessage(null);
     startTransition(async () => {
       try {
-        const created = await addRosterRunnerAction(token, name);
+        const created = await addRunnersAction(slug, names);
         setRoster((prev) =>
           [
             ...prev,
-            { id: created.id, name: created.name, duplicateIndex: 1, duplicateCount: 1, isRetired: false },
-          ].sort(
-            (a, b) => a.name.localeCompare(b.name)
-          )
+            ...created.map((c) => ({
+              id: c.id,
+              name: c.name,
+              duplicateIndex: 1,
+              duplicateCount: 1,
+              isRetired: false,
+            })),
+          ].sort(byName)
         );
         setNewName("");
+        setMessage({
+          text: `Added ${created.length === 1 ? created[0].name : `${created.length} runners`}.`,
+          isError: false,
+        });
       } catch (err) {
-        setMessage(err instanceof Error ? err.message : "Couldn't add runner.");
+        fail(err, "Couldn't add runner.");
       }
     });
   }
 
-  function saveRename(runnerId: string, newValue: string) {
+  function saveRename(runner: RosterRunner, newValue: string) {
     const trimmed = newValue.trim();
     setRenamingId(null);
-    if (!trimmed) return;
+    if (!trimmed || trimmed === runner.name) return;
     setRoster((prev) =>
-      prev.map((r) => (r.id === runnerId ? { ...r, name: trimmed } : r))
+      prev.map((r) => (r.id === runner.id ? { ...r, name: trimmed } : r)).sort(byName)
     );
     startTransition(async () => {
       try {
-        await renameRosterRunnerAction(token, runnerId, trimmed);
+        const res = await renameRunnerAction(slug, runner.id, trimmed);
+        if (res.error) throw new Error(res.error);
       } catch (err) {
-        setMessage(err instanceof Error ? err.message : "Rename failed.");
+        fail(err, "Couldn't save the new spelling.");
       }
     });
   }
 
-  function handleRetire(runner: RosterRunner) {
+  function setRetired(runner: RosterRunner, isRetired: boolean) {
     if (
+      isRetired &&
       !confirm(
-        `Retire "${runner.name}"? They'll be hidden from your entry forms and search, but all their past results stay exactly as they are. You can reactivate them later if needed.`
+        `Retire ${runner.name}? They'll disappear from your race entry lists, but their past results are kept. You can bring them back from "Retired" below.`
       )
     ) {
       return;
     }
     setMessage(null);
-    setRoster((prev) =>
-      prev.map((r) => (r.id === runner.id ? { ...r, isRetired: true } : r))
-    );
+    setRoster((prev) => prev.map((r) => (r.id === runner.id ? { ...r, isRetired } : r)));
     startTransition(async () => {
       try {
-        await retireRosterRunnerAction(token, runner.id);
+        if (isRetired) await retireRunnerAction(slug, runner.id);
+        else await reactivateRunnerAction(slug, runner.id);
       } catch (err) {
-        setMessage(err instanceof Error ? err.message : "Couldn't retire runner.");
-      }
-    });
-  }
-
-  function handleReactivate(runner: RosterRunner) {
-    setMessage(null);
-    setRoster((prev) =>
-      prev.map((r) => (r.id === runner.id ? { ...r, isRetired: false } : r))
-    );
-    startTransition(async () => {
-      try {
-        await reactivateRosterRunnerAction(token, runner.id);
-      } catch (err) {
-        setMessage(err instanceof Error ? err.message : "Couldn't reactivate runner.");
+        fail(err, "Couldn't update runner.");
       }
     });
   }
 
   return (
-    <div className="space-y-2">
-      <p className="text-sm text-gray-600">
-        Add your runners here ahead of race day so they're ready to pick from when you
-        enter results.
-      </p>
-
-      <div className="flex items-center gap-2">
-        <input
-          type="text"
-          placeholder="New runner's name…"
-          className="flex-1 rounded border px-2 py-1 text-sm"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-        />
+    <div className="space-y-5">
+      <section className="space-y-2 rounded-lg border p-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">Add runners</h2>
+          <button
+            type="button"
+            className="min-h-[44px] text-sm text-blue-600 underline"
+            onClick={() => setBulkMode((b) => !b)}
+          >
+            {bulkMode ? "Add one" : "Add several"}
+          </button>
+        </div>
+        {bulkMode ? (
+          <textarea
+            rows={6}
+            placeholder={"One name per line, e.g.\nAmelia Jones\nNoah Smith"}
+            className="w-full rounded border px-3 py-2 text-base"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+          />
+        ) : (
+          <input
+            type="text"
+            placeholder="Child's full name"
+            autoComplete="off"
+            className="min-h-[44px] w-full rounded border px-3 text-base"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+          />
+        )}
         <button
           type="button"
-          className="rounded bg-blue-600 px-3 py-1 text-sm text-white disabled:opacity-50"
+          className="min-h-[44px] w-full rounded-lg bg-blue-600 font-semibold text-white disabled:opacity-50"
           disabled={isPending || !newName.trim()}
           onClick={handleAdd}
         >
-          Add
+          {isPending ? "Saving…" : "Add"}
         </button>
-      </div>
-      {message && <p className="text-xs text-red-600">{message}</p>}
+      </section>
 
-      {roster.length > 0 && (
-        <ul className="divide-y rounded border text-sm">
-          {roster.map((r) => (
-            <li
-              key={r.id}
-              className={`flex items-center gap-2 px-2 py-1 ${r.isRetired ? "opacity-50" : ""}`}
-            >
-              {renamingId === r.id ? (
-                <input
-                  type="text"
-                  autoFocus
-                  defaultValue={r.name}
-                  className="flex-1 rounded border px-1"
-                  onBlur={(e) => saveRename(r.id, e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") saveRename(r.id, (e.target as HTMLInputElement).value);
-                    if (e.key === "Escape") setRenamingId(null);
-                  }}
-                />
-              ) : (
-                <span className="flex-1 truncate">
-                  {r.name}
-                  {r.duplicateCount > 1 && (
-                    <span className="ml-1 text-xs text-gray-500">({r.duplicateIndex})</span>
-                  )}
-                  {r.isRetired && (
-                    <span className="ml-1 rounded bg-gray-200 px-1 text-xs text-gray-600">
-                      retired
-                    </span>
-                  )}
-                </span>
-              )}
-              {renamingId !== r.id && (
-                <>
+      {message && (
+        <p className={`text-sm ${message.isError ? "text-red-600" : "text-green-700"}`}>
+          {message.text}
+        </p>
+      )}
+
+      <section className="space-y-2">
+        <h2 className="font-semibold">
+          Your runners <span className="font-normal text-gray-500">({active.length})</span>
+        </h2>
+        {active.length > 8 && (
+          <input
+            type="search"
+            placeholder="Find a runner…"
+            className="min-h-[44px] w-full rounded border px-3 text-base"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        )}
+        {active.length === 0 ? (
+          <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
+            No runners yet — add your children above so they&apos;re ready to pick on race day.
+          </p>
+        ) : (
+          <ul className="divide-y rounded-lg border">
+            {visibleActive.map((r) => (
+              <li key={r.id} className="flex min-h-[52px] items-center gap-2 px-3 py-1">
+                {renamingId === r.id ? (
+                  <input
+                    type="text"
+                    autoFocus
+                    defaultValue={r.name}
+                    aria-label={`New spelling for ${r.name}`}
+                    className="min-h-[44px] flex-1 rounded border px-2 text-base"
+                    onBlur={(e) => saveRename(r, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveRename(r, (e.target as HTMLInputElement).value);
+                      if (e.key === "Escape") setRenamingId(null);
+                    }}
+                  />
+                ) : (
+                  <>
+                    <RunnerName r={r} />
+                    <button
+                      type="button"
+                      className="min-h-[44px] rounded px-2 text-sm text-blue-600"
+                      onClick={() => setRenamingId(r.id)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="min-h-[44px] rounded px-2 text-sm text-red-600"
+                      onClick={() => setRetired(r, true)}
+                    >
+                      Retire
+                    </button>
+                  </>
+                )}
+              </li>
+            ))}
+            {visibleActive.length === 0 && (
+              <li className="px-3 py-3 text-sm text-gray-500">No runners match “{filter}”.</li>
+            )}
+          </ul>
+        )}
+      </section>
+
+      {retired.length > 0 && (
+        <section>
+          <button
+            type="button"
+            className="min-h-[44px] font-semibold text-gray-700"
+            onClick={() => setShowRetired((s) => !s)}
+            aria-expanded={showRetired}
+          >
+            {showRetired ? "▾" : "▸"} Retired ({retired.length})
+          </button>
+          {showRetired && (
+            <ul className="divide-y rounded-lg border text-gray-600">
+              {retired.map((r) => (
+                <li key={r.id} className="flex min-h-[52px] items-center gap-2 px-3 py-1">
+                  <RunnerName r={r} />
                   <button
                     type="button"
-                    className="text-xs text-blue-600 underline"
-                    onClick={() => setRenamingId(r.id)}
-                    title="Fix a misspelled name"
+                    className="min-h-[44px] rounded px-2 text-sm text-blue-600"
+                    onClick={() => setRetired(r, false)}
                   >
-                    rename
+                    Bring back
                   </button>
-                  {r.isRetired ? (
-                    <button
-                      type="button"
-                      className="text-xs text-blue-600 underline"
-                      onClick={() => handleReactivate(r)}
-                    >
-                      reactivate
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="text-xs text-red-600 underline"
-                      onClick={() => handleRetire(r)}
-                      title="They've graduated / left — hide them without deleting past results"
-                    >
-                      retire
-                    </button>
-                  )}
-                </>
-              )}
-            </li>
-          ))}
-        </ul>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       )}
     </div>
   );

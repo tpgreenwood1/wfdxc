@@ -4,12 +4,11 @@ import { getDb } from "@/db/client";
 import { events, races, schools, submissionTokens } from "@/db/schema";
 import { getOrCreateHubTokensForEvent } from "@/lib/hubTokens";
 import { getSubmissionStatusMatrix } from "@/lib/results";
-import CopyLinkButton from "./CopyLinkButton";
+import CopyLinkButton from "@/app/components/CopyLinkButton";
+import { sortRaces } from "@/lib/races";
 import { regenerateHubTokenAction, regenerateSubmissionTokenAction } from "./actions";
 
 export const dynamic = "force-dynamic";
-
-const YEAR_GROUP_ORDER = ["reception", "y1", "y2", "y3", "y4", "y5", "y6"];
 
 export default async function EventLinksPage({
   params,
@@ -37,12 +36,7 @@ export default async function EventLinksPage({
     getSubmissionStatusMatrix(params.eventId),
   ]);
 
-  eventRaces.sort((a, b) => {
-    const yearDiff =
-      YEAR_GROUP_ORDER.indexOf(a.yearGroup) - YEAR_GROUP_ORDER.indexOf(b.yearGroup);
-    if (yearDiff !== 0) return yearDiff;
-    return a.gender.localeCompare(b.gender);
-  });
+  sortRaces(eventRaces);
 
   const submissionTokenByCell = new Map(
     submissionRows.map((r) => [`${r.raceId}:${r.schoolId}`, r])
@@ -55,10 +49,11 @@ export default async function EventLinksPage({
       </h1>
       <p className="text-gray-600">Entry links by school</p>
       <p className="rounded bg-blue-50 p-2 text-sm text-blue-900">
-        Send each school its <strong>hub link</strong> — it lists every race for that
-        school and never expires. The per-race links are only shown for reference or
-        to regenerate a single race's link; you shouldn't normally need to send them
-        directly.
+        Schools should use their <strong>teacher link</strong> (from the{" "}
+        <a className="underline" href="/admin/schools">Schools</a> page) — one
+        link for the whole season. The per-event hub links below still work and open
+        the same school home page; the per-race links are only for chasing one school
+        on one race.
       </p>
 
       <div className="overflow-x-auto">

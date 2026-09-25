@@ -3,6 +3,7 @@ import { readFileSync } from "fs";
 import { and, eq, ilike } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { runners, schools } from "../db/schema";
+import { createSchool } from "../lib/schools";
 
 /**
  * Seeds runners (and their schools) from a plain text file, one runner per line,
@@ -60,10 +61,7 @@ async function main() {
       if (existingSchool) {
         schoolId = existingSchool.id;
       } else {
-        const [created] = await db
-          .insert(schools)
-          .values({ name: schoolName })
-          .returning({ id: schools.id });
+        const created = await createSchool(schoolName);
         schoolId = created.id;
         schoolsCreated++;
       }

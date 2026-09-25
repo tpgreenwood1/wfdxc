@@ -1,6 +1,13 @@
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { dismissedMergeCandidates, runnerAliases, runners, schools } from "@/db/schema";
+import {
+  dismissedMergeCandidates,
+  publishedIndividualResults,
+  results,
+  runnerAliases,
+  runners,
+  schools,
+} from "@/db/schema";
 
 const SIMILARITY_THRESHOLD = 0.3;
 // word_similarity(query, name) scores how well the query matches *any substring* of
@@ -11,6 +18,9 @@ const SIMILARITY_THRESHOLD = 0.3;
 // typing them.
 const WORD_SIMILARITY_THRESHOLD = 0.4;
 const MERGE_CANDIDATE_THRESHOLD = 0.5;
+// Stricter across schools: two different children sharing a common name is far more
+// likely there than within one school.
+const TRANSFER_CANDIDATE_THRESHOLD = 0.7;
 
 export type RunnerSearchResult = {
   id: string;
@@ -76,6 +86,17 @@ export async function searchRunners(
     limit ${limit}
   `);
   return result.rows;
+}
+
+/** The teacher entry form's "Search other schools" fallback: league-wide fuzzy search
+ * minus the teacher's own school (whose roster is already filtered on screen). */
+export async function searchOtherSchools(
+  ownSchoolId: string,
+  query: string
+): Promise<RunnerSearchResult[]> {
+  if (query.trim().length < 2) return [];
+  const matches = await searchRunners(query, { limit: 20 });
+  return matches.filter((m) => m.schoolId !== ownSchoolId).slice(0, 10);
 }
 
 export async function quickAddRunner(
@@ -174,6 +195,115 @@ export async function findMergeCandidates(
   return result.rows;
 }
 
+export type TransferCandidate = {
+  runnerAId: string;
+  runnerAName: string;
+  schoolAName: string;
+  runnerBId: string;
+  runnerBName: string;
+  schoolBName: string;
+  similarity: number;
+};
+
+/**
+ * Near-identical names at *different* schools — usually a child who moved school and
+ * was added again by the new teacher instead of being moved. Same-name children at
+ * different schools are common, so this uses a stricter threshold and drops any pair
+ * that have both run in the same event (they can't be one child).
+ */
+export async function findTransferCandidates(limit = 30): Promise<TransferCandidate[]> {
+  const db = getDb();
+  const result = await db.execute<TransferCandidate>(sql`
+    select
+      r1.id as "runnerAId", r1.name as "runnerAName", s1.name as "schoolAName",
+      r2.id as "runnerBId", r2.name as "runnerBName", s2.name as "schoolBName",
+      similarity(lower(r1.name), lower(r2.name)) as similarity
+    from runners r1
+    join runners r2
+      on r1.school_id <> r2.school_id and r1.id < r2.id
+      and lower(r1.name) % lower(r2.name)
+    join schools s1 on s1.id = r1.school_id
+    join schools s2 on s2.id = r2.school_id
+    left join dismissed_merge_candidates d
+      on d.runner_a_id = r1.id and d.runner_b_id = r2.id
+    where d.id is null
+      and similarity(lower(r1.name), lower(r2.name)) > ${TRANSFER_CANDIDATE_THRESHOLD}
+      and not exists (
+        select 1
+        from results x
+        join races rx on rx.id = x.race_id
+        join results y on y.runner_id = r2.id
+        join races ry on ry.id = y.race_id and ry.event_id = rx.event_id
+        where x.runner_id = r1.id
+      )
+    order by similarity desc
+    limit ${limit}
+  `);
+  return result.rows;
+}
+
+export type RunnerDetail = {
+  id: string;
+  name: string;
+  schoolId: string;
+  schoolName: string;
+  retiredAt: Date | null;
+  aliases: string[];
+};
+
+export async function getRunnerDetail(runnerId: string): Promise<RunnerDetail | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      id: runners.id,
+      name: runners.name,
+      schoolId: runners.schoolId,
+      schoolName: schools.name,
+      retiredAt: runners.retiredAt,
+    })
+    .from(runners)
+    .innerJoin(schools, eq(runners.schoolId, schools.id))
+    .where(eq(runners.id, runnerId));
+  if (!row) return null;
+  const aliases = await db
+    .select({ alias: runnerAliases.alias })
+    .from(runnerAliases)
+    .where(eq(runnerAliases.runnerId, runnerId));
+  return { ...row, aliases: [...new Set(aliases.map((a) => a.alias))] };
+}
+
+export type RunnerHistoryRow = {
+  resultId: string;
+  raceId: string;
+  yearGroup: string;
+  gender: string;
+  raceStatus: string;
+  eventName: string;
+  eventDate: string;
+  position: number;
+  schoolId: string;
+  schoolName: string;
+};
+
+/** Every race this runner has a result in, newest first, with the school they ran
+ * for in *that* race (results.school_id — not their current school). */
+export async function getRunnerHistory(runnerId: string): Promise<RunnerHistoryRow[]> {
+  const db = getDb();
+  const result = await db.execute<RunnerHistoryRow>(sql`
+    select res.id as "resultId", ra.id as "raceId", ra.year_group as "yearGroup",
+      ra.gender as gender, ra.status as "raceStatus", e.name as "eventName",
+      e.date::text as "eventDate", res.position as position,
+      res.school_id as "schoolId", s.name as "schoolName"
+    from results res
+    join races ra on ra.id = res.race_id
+    join events e on e.id = ra.event_id
+    join schools s on s.id = res.school_id
+    where res.runner_id = ${runnerId}
+    order by e.date desc, ra.year_group, ra.gender
+  `);
+  return result.rows;
+}
+
 /** Marks a merge-candidate pair as reviewed-and-not-a-duplicate (e.g. genuinely two
  * different kids with the same name) so it stops resurfacing in the roster tool. */
 export async function dismissMergeCandidate(
@@ -188,10 +318,50 @@ export async function dismissMergeCandidate(
     .onConflictDoNothing();
 }
 
+export type MergeCollision = {
+  raceId: string;
+  yearGroup: string;
+  gender: string;
+  eventName: string;
+};
+
+/** Races where both runners already have a result — merging them would leave the
+ * canonical runner with two results in one race (blocked by UNIQUE(race_id,
+ * runner_id)), so the scorer has to delete one of the two results first. */
+export async function findMergeCollisions(
+  runnerAId: string,
+  runnerBId: string
+): Promise<MergeCollision[]> {
+  const db = getDb();
+  const result = await db.execute<MergeCollision>(sql`
+    select ra.id as "raceId", ra.year_group as "yearGroup", ra.gender as gender,
+      e.name as "eventName"
+    from results a
+    join results b on b.race_id = a.race_id and b.runner_id = ${runnerBId}
+    join races ra on ra.id = a.race_id
+    join events e on e.id = ra.event_id
+    where a.runner_id = ${runnerAId}
+    order by e.date, ra.year_group, ra.gender
+  `);
+  return result.rows;
+}
+
+export class MergeCollisionError extends Error {
+  constructor(public collisions: MergeCollision[]) {
+    super(
+      `Both runners have a result in ${collisions.length} race(s) — delete one of the two results in each race first.`
+    );
+  }
+}
+
 /**
- * Merges `duplicateId` into `canonicalId`: reassigns every results row, records the
- * duplicate's name (and its own prior aliases) for audit trail + future search
+ * Merges `duplicateId` into `canonicalId`: reassigns every results row (and every
+ * published row, so season standings keep counting the duplicate's races), records
+ * the duplicate's name (and its own prior aliases) for audit trail + future search
  * matching, then deletes the duplicate runner record.
+ *
+ * Refuses with MergeCollisionError if both runners have a result in the same race:
+ * deleting the duplicate would otherwise cascade-delete that result silently.
  */
 export async function mergeRunners(
   canonicalId: string,
@@ -200,6 +370,9 @@ export async function mergeRunners(
   if (canonicalId === duplicateId) {
     throw new Error("Cannot merge a runner into itself");
   }
+  const collisions = await findMergeCollisions(canonicalId, duplicateId);
+  if (collisions.length > 0) throw new MergeCollisionError(collisions);
+
   const db = getDb();
 
   await db.transaction(async (tx) => {
@@ -214,18 +387,17 @@ export async function mergeRunners(
       .from(runnerAliases)
       .where(eq(runnerAliases.runnerId, duplicateId));
 
-    // results has UNIQUE(race_id, runner_id), so a plain reassignment can collide if
-    // the canonical runner already has a result in the same race as the duplicate
-    // (both entered separately for the same kid). Skip those rows rather than fail
-    // the whole merge; the scorer resolves the leftover duplicate result manually.
-    await tx.execute(sql`
-      update results
-      set runner_id = ${canonicalId}
-      where runner_id = ${duplicateId}
-        and race_id not in (
-          select race_id from results where runner_id = ${canonicalId}
-        )
-    `);
+    await tx
+      .update(results)
+      .set({ runnerId: canonicalId, updatedAt: new Date() })
+      .where(eq(results.runnerId, duplicateId));
+
+    // published rows are a soft reference (ON DELETE SET NULL); without this the
+    // duplicate's already-published races would drop out of season standings.
+    await tx
+      .update(publishedIndividualResults)
+      .set({ runnerId: canonicalId })
+      .where(eq(publishedIndividualResults.runnerId, duplicateId));
 
     await tx.insert(runnerAliases).values([
       { runnerId: canonicalId, alias: duplicate.name },

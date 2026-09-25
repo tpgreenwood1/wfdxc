@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import {
   events,
@@ -111,6 +111,35 @@ export async function publishRace(raceId: string): Promise<void> {
       .set({ publishedAt, publishedResultCount: rows.length })
       .where(eq(races.id, raceId));
   });
+}
+
+/**
+ * Admin edits to a closed (finalised) race go straight to the public page and
+ * standings — the admin is deliberately correcting it, so there's no separate
+ * "republish" step to forget. No-op for open/cancelled races.
+ */
+export async function republishIfClosed(raceId: string): Promise<boolean> {
+  const db = getDb();
+  const [race] = await db
+    .select({ status: races.status })
+    .from(races)
+    .where(eq(races.id, raceId));
+  if (race?.status !== "closed") return false;
+  await publishRace(raceId);
+  return true;
+}
+
+/** Republishes every closed race a runner has a live result in — after a rename or
+ * merge, so the frozen runner_name in published rows picks up the correction. */
+export async function republishClosedRacesForRunner(runnerId: string): Promise<string[]> {
+  const db = getDb();
+  const rows = await db
+    .selectDistinct({ raceId: results.raceId })
+    .from(results)
+    .innerJoin(races, eq(results.raceId, races.id))
+    .where(and(eq(results.runnerId, runnerId), eq(races.status, "closed")));
+  for (const { raceId } of rows) await publishRace(raceId);
+  return rows.map((r) => r.raceId);
 }
 
 /**
