@@ -1,7 +1,8 @@
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { races, raceSchoolStatus, results, runners, schools } from "@/db/schema";
 import { quickAddRunner } from "./runners";
+import { isValidPosition, MAX_POSITION } from "./raceIssues";
 
 export type RosterRunner = {
   id: string;
@@ -117,9 +118,7 @@ export type SaveResultRow = {
   position: number;
 };
 
-export function isValidPosition(position: number): boolean {
-  return Number.isInteger(position) && position >= 1;
-}
+export { isValidPosition } from "./raceIssues";
 
 /** The teacher-entry save path, shared by the per-race token form and the school home
  * page. Saves one row at a time (the form autosaves each runner as their position is
@@ -133,7 +132,7 @@ export async function saveSchoolResult(input: {
 }): Promise<SubmittedResult> {
   const { row } = input;
   if (!isValidPosition(row.position)) {
-    throw new Error("Position must be a whole number, 1 or more.");
+    throw new Error(`Position must be a whole number from 1 to ${MAX_POSITION}.`);
   }
 
   const db = getDb();
@@ -272,4 +271,86 @@ export async function getRaceResultsForAdmin(
     .where(eq(results.raceId, raceId))
     .orderBy(results.position);
   return rows;
+}
+
+/**
+ * Moves every result one school entered in a race over to another race in the same
+ * event — for results typed into the wrong race (e.g. Y3 Girls entered on the Y3
+ * Boys page). All or nothing, in one transaction. Refuses if any of those runners
+ * already has a result in the target race.
+ *
+ * The school's confirmation in the source race is cleared (it has nothing there now,
+ * so the scorer/teacher should confirm "no runners" rather than it being assumed), and
+ * a "no runners" in the target race is cleared since it clearly did have runners.
+ * Returns how many results moved; the caller republishes either race if finalised.
+ */
+export async function moveSchoolEntries(input: {
+  fromRaceId: string;
+  toRaceId: string;
+  schoolId: string;
+}): Promise<{ moved: number }> {
+  const { fromRaceId, toRaceId, schoolId } = input;
+  if (fromRaceId === toRaceId) throw new Error("Pick a different race to move them to.");
+  const db = getDb();
+
+  return db.transaction(async (tx) => {
+    const raceRows = await tx
+      .select({ id: races.id, eventId: races.eventId, status: races.status })
+      .from(races)
+      .where(inArray(races.id, [fromRaceId, toRaceId]));
+    const from = raceRows.find((r) => r.id === fromRaceId);
+    const to = raceRows.find((r) => r.id === toRaceId);
+    if (!from || !to) throw new Error("Race not found.");
+    if (from.eventId !== to.eventId) throw new Error("Can only move results within the same event.");
+    if (to.status === "cancelled") throw new Error("That race is cancelled — un-cancel it first.");
+
+    const moving = await tx
+      .select({ id: results.id, runnerId: results.runnerId })
+      .from(results)
+      .where(and(eq(results.raceId, fromRaceId), eq(results.schoolId, schoolId)))
+      .for("update");
+    if (moving.length === 0) throw new Error("That school has no results in this race.");
+
+    const clashes = await tx
+      .select({ name: runners.name })
+      .from(results)
+      .innerJoin(runners, eq(results.runnerId, runners.id))
+      .where(
+        and(
+          eq(results.raceId, toRaceId),
+          inArray(
+            results.runnerId,
+            moving.map((m) => m.runnerId)
+          )
+        )
+      );
+    if (clashes.length > 0) {
+      throw new Error(
+        `Already in the other race: ${clashes.map((c) => c.name).join(", ")}. Delete those results from one race first.`
+      );
+    }
+
+    await tx
+      .update(results)
+      .set({ raceId: toRaceId, updatedAt: new Date() })
+      .where(
+        inArray(
+          results.id,
+          moving.map((m) => m.id)
+        )
+      );
+    await tx
+      .delete(raceSchoolStatus)
+      .where(and(eq(raceSchoolStatus.raceId, fromRaceId), eq(raceSchoolStatus.schoolId, schoolId)));
+    await tx
+      .delete(raceSchoolStatus)
+      .where(
+        and(
+          eq(raceSchoolStatus.raceId, toRaceId),
+          eq(raceSchoolStatus.schoolId, schoolId),
+          eq(raceSchoolStatus.state, "no_runners")
+        )
+      );
+    return { moved: moving.length };
+  });
 }

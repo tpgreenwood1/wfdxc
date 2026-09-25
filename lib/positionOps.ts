@@ -13,7 +13,7 @@
  *   changed the results in the meantime.
  */
 
-import type { PositionAck } from "./raceIssues";
+import { isValidPosition, MAX_POSITION, type PositionAck } from "./raceIssues";
 
 export type PositionStep =
   | { kind: "set"; resultId: string; position: number }
@@ -49,8 +49,8 @@ export function applySteps<R extends Placed, A extends PositionAck>(
   let a = acks;
   for (const step of steps) {
     if (step.kind === "set") {
-      if (!Number.isInteger(step.position) || step.position < 1) {
-        return { error: "Place must be a whole number of 1 or more." };
+      if (!isValidPosition(step.position)) {
+        return { error: `Place must be a whole number from 1 to ${MAX_POSITION}.` };
       }
       if (!r.some((x) => x.id === step.resultId)) return { error: STALE };
       r = r.map((x) => (x.id === step.resultId ? { ...x, position: step.position } : x));
@@ -160,7 +160,7 @@ export function summarizeMove(
 /** Validates steps arriving at a server action from the client. */
 export function parseSteps(raw: unknown): PositionStep[] | null {
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > 10) return null;
-  const isPlace = (n: unknown) => Number.isInteger(n) && (n as number) >= 1;
+  const isPlace = (n: unknown) => typeof n === "number" && isValidPosition(n);
   const steps: PositionStep[] = [];
   for (const s of raw) {
     if (!s || typeof s !== "object") return null;

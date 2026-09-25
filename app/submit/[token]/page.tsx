@@ -7,7 +7,13 @@ import { resolveToken } from "@/lib/tokens";
 import { getOrCreateHubToken } from "@/lib/hubTokens";
 import { getResultsForSchoolInRace, getSchoolRoster } from "@/lib/results";
 import SubmitForm from "@/app/components/SubmitForm";
-import { removeResult, renameRunnerAction, saveResult, searchOtherSchoolsAction } from "./actions";
+import {
+  claimRunnerAction,
+  removeResult,
+  renameRunnerAction,
+  saveResult,
+  searchOtherSchoolsAction,
+} from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +54,8 @@ export default async function SubmitPage({
       )}
 
       <SubmitForm
+        storageKey={`xc-entry:${ctx.raceId}:${ctx.schoolId}`}
+        onClaimRunner={claimRunnerAction.bind(null, params.token)}
         onSaveRow={saveResult.bind(null, params.token)}
         onRemove={removeResult.bind(null, params.token)}
         onRename={renameRunnerAction.bind(null, params.token)}

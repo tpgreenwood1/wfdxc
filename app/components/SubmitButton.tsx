@@ -2,15 +2,13 @@
 
 import { useFormStatus } from "react-dom";
 
-/** Submit button that asks first, then shows `pendingLabel` and disables itself until
- * the server action finishes — so a slow finalise isn't tapped twice. */
-export default function ConfirmSubmitButton({
-  confirmMessage,
+/** Plain form submit button that disables itself and shows `pendingLabel` while the
+ * form's server action runs. Must be rendered inside the <form>. */
+export default function SubmitButton({
   className,
-  pendingLabel = "Working…",
+  pendingLabel = "Saving…",
   children,
 }: {
-  confirmMessage: string;
   className?: string;
   pendingLabel?: string;
   children: React.ReactNode;
@@ -22,9 +20,6 @@ export default function ConfirmSubmitButton({
       disabled={pending}
       aria-busy={pending}
       className={`${className ?? ""} disabled:cursor-wait disabled:opacity-60`}
-      onClick={(e) => {
-        if (!confirm(confirmMessage)) e.preventDefault();
-      }}
     >
       {pending ? pendingLabel : children}
     </button>

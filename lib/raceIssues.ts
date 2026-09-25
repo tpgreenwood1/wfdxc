@@ -9,8 +9,28 @@
  * longer flagged (e.g. the duplicate was since fixed) are simply ignored.
  */
 
+/** Highest place anyone can enter. Well above any real field, but stops a typo like
+ * "1500" for "15" flooding the admin table with a thousand "missing places" (and a
+ * value too big for the database surfacing as a raw error). */
+export const MAX_POSITION = 500;
+
+/** Above this the teacher form asks them to double-check (soft warning only). */
+export const HIGH_POSITION_WARNING = 200;
+
+export function isValidPosition(position: number): boolean {
+  return Number.isInteger(position) && position >= 1 && position <= MAX_POSITION;
+}
+
 export type IssueRow = { id: string; position: number };
-export type PositionAck = { position: number; kind: "tie" | "gap"; note?: string | null };
+/** `runnerCount` (ties only): how many runners shared the place when the tie was
+ * accepted. A later runner landing on the same place re-opens it. Null = accepted
+ * before counts were recorded, which covers any number. */
+export type PositionAck = {
+  position: number;
+  kind: "tie" | "gap";
+  note?: string | null;
+  runnerCount?: number | null;
+};
 
 export type DuplicateIssue = {
   position: number;
@@ -33,7 +53,9 @@ export type RaceIssues = {
 };
 
 export function findRaceIssues(rows: IssueRow[], acks: PositionAck[] = []): RaceIssues {
-  const tieAcks = new Set(acks.filter((a) => a.kind === "tie").map((a) => a.position));
+  const tieAcks = new Map(
+    acks.filter((a) => a.kind === "tie").map((a) => [a.position, a.runnerCount ?? null])
+  );
   const gapAcks = new Map(
     acks.filter((a) => a.kind === "gap").map((a) => [a.position, a.note ?? null])
   );
@@ -51,7 +73,9 @@ export function findRaceIssues(rows: IssueRow[], acks: PositionAck[] = []): Race
     .map(([position, resultIds]) => ({
       position,
       resultIds,
-      acknowledged: tieAcks.has(position),
+      acknowledged:
+        tieAcks.has(position) &&
+        (tieAcks.get(position) == null || resultIds.length <= tieAcks.get(position)!),
     }));
 
   // Every place from 1 up to the last one claimed should belong to someone.

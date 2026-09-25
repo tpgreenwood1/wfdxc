@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import {
   dismissedMergeCandidates,
@@ -140,6 +140,23 @@ export async function moveRunnerToSchool(
     .update(runners)
     .set({ schoolId: newSchoolId })
     .where(eq(runners.id, runnerId));
+}
+
+/** A teacher's "move this child to our list" after entering a transfer found via
+ * "Search other schools". Only allowed once the child has a result for this school —
+ * otherwise any teacher could pull any child onto their roster. Past results keep
+ * whichever school they were run for. */
+export async function claimRunnerForSchool(runnerId: string, schoolId: string): Promise<void> {
+  const db = getDb();
+  const [ranForUs] = await db
+    .select({ id: results.id })
+    .from(results)
+    .where(and(eq(results.runnerId, runnerId), eq(results.schoolId, schoolId)))
+    .limit(1);
+  if (!ranForUs) {
+    throw new Error("Enter their result for your school first, then you can move them to your list.");
+  }
+  await moveRunnerToSchool(runnerId, schoolId);
 }
 
 /** Soft-deletes a runner who's aged out/graduated: hides them from roster pickers and

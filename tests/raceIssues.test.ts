@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { describeIssues, findRaceIssues, ordinal } from "@/lib/raceIssues";
+import {
+  describeIssues,
+  findRaceIssues,
+  isValidPosition,
+  MAX_POSITION,
+  ordinal,
+} from "@/lib/raceIssues";
 import { raceReadiness, schoolEventProgress, schoolRaceState } from "@/lib/raceSchoolStatus";
 
 const rows = (...positions: number[]) =>
@@ -37,6 +43,22 @@ describe("findRaceIssues", () => {
       { position: 3, acknowledged: true, note: "non-league runner" },
     ]);
     expect(issues.openCount).toBe(0);
+  });
+
+  it("re-opens an accepted tie when another runner lands on the same place", () => {
+    const accepted = [{ position: 2, kind: "tie" as const, runnerCount: 2 }];
+    expect(findRaceIssues(rows(1, 2, 2, 3), accepted).openDuplicates).toBe(0);
+    expect(findRaceIssues(rows(1, 2, 2, 2, 3), accepted).openDuplicates).toBe(1);
+    // Accepted before counts were recorded: covers any number.
+    expect(findRaceIssues(rows(1, 2, 2, 2, 3), [{ position: 2, kind: "tie" }]).openDuplicates).toBe(0);
+  });
+
+  it("caps positions so a typo can't flood the table with gaps", () => {
+    expect(isValidPosition(1)).toBe(true);
+    expect(isValidPosition(MAX_POSITION)).toBe(true);
+    expect(isValidPosition(MAX_POSITION + 1)).toBe(false);
+    expect(isValidPosition(0)).toBe(false);
+    expect(isValidPosition(2.5)).toBe(false);
   });
 
   it("ignores stale acks for places that are no longer flagged", () => {

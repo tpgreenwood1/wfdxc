@@ -20,6 +20,9 @@ import RaceResultsTable from "./RaceResultsTable";
 import CopyLinkButton from "@/app/components/CopyLinkButton";
 import StatusBadge from "@/app/components/StatusBadge";
 import ConfirmSubmitButton from "@/app/components/ConfirmSubmitButton";
+import SubmitButton from "@/app/components/SubmitButton";
+import { getDoubleEntriesForEvent } from "@/lib/eventBoard";
+import MoveEntries from "./MoveEntries";
 import {
   regenerateTokenAction,
   republishAction,
@@ -49,11 +52,16 @@ export default async function RacePage({ params }: { params: { raceId: string } 
   const [race] = await db.select().from(races).where(eq(races.id, params.raceId));
   if (!race) notFound();
 
-  const [event, siblings, resultRows, acks, confirmed, tokens, diverged, allSchools] =
+  const [event, siblings, resultRows, acks, confirmed, tokens, diverged, allSchools, doubles] =
     await Promise.all([
       db.select().from(events).where(eq(events.id, race.eventId)).then((r) => r[0]),
       db
-        .select({ id: races.id, yearGroup: races.yearGroup, gender: races.gender })
+        .select({
+          id: races.id,
+          yearGroup: races.yearGroup,
+          gender: races.gender,
+          status: races.status,
+        })
         .from(races)
         .where(eq(races.eventId, race.eventId)),
       getRaceResultsForAdmin(params.raceId),
@@ -71,7 +79,18 @@ export default async function RacePage({ params }: { params: { raceId: string } 
         .orderBy(schools.name),
       race.status === "closed" ? isDiverged(params.raceId) : Promise.resolve(false),
       db.select({ id: schools.id, name: schools.name }).from(schools).orderBy(schools.name),
+      getDoubleEntriesForEvent(race.eventId),
     ]);
+
+  // runnerId -> the other races they're also entered in at this event.
+  const alsoIn: Record<string, string[]> = {};
+  for (const d of doubles) {
+    if (!d.races.some((r) => r.raceId === race.id)) continue;
+    alsoIn[d.runnerId] = d.races.filter((r) => r.raceId !== race.id).map((r) => r.label);
+  }
+  const moveTargets = siblings
+    .filter((r) => r.id !== race.id && r.status !== "cancelled")
+    .map((r) => ({ id: r.id, label: raceLabel(r), status: r.status }));
 
   sortRaces(siblings);
   const index = siblings.findIndex((r) => r.id === race.id);
@@ -184,6 +203,7 @@ export default async function RacePage({ params }: { params: { raceId: string } 
                 className={`min-h-[44px] rounded px-4 font-medium text-white ${
                   readiness.ready ? "bg-green-700" : "bg-gray-800"
                 }`}
+                pendingLabel="Finalising…"
               >
                 {readiness.ready ? "Finalise race ✓" : "Finalise race…"}
               </ConfirmSubmitButton>
@@ -195,6 +215,10 @@ export default async function RacePage({ params }: { params: { raceId: string } 
               <Link className="text-blue-600 underline" href={`/results/${race.id}`}>
                 View public page
               </Link>
+              {" · "}
+              <Link className="text-blue-600 underline" href={`/admin/events/${race.eventId}/print?race=${race.id}`}>
+                Print
+              </Link>
               . Corrections below update it straight away.
             </p>
           )}
@@ -204,6 +228,14 @@ export default async function RacePage({ params }: { params: { raceId: string } 
           <details className="text-sm">
             <summary className="cursor-pointer px-2 py-2 text-gray-600">More…</summary>
             <div className="mt-1 flex flex-wrap gap-2">
+              {race.status !== "closed" && (
+                <Link
+                  className="flex min-h-[40px] items-center rounded bg-gray-100 px-3"
+                  href={`/admin/events/${race.eventId}/print?race=${race.id}`}
+                >
+                  Print (provisional)
+                </Link>
+              )}
               {race.status !== "open" && (
                 <StatusForm raceId={race.id} status="open" label="Reopen for teachers"
                   message="Reopen this race? Teachers can edit their entries again. The public results stay up until you finalise again." />
@@ -215,9 +247,9 @@ export default async function RacePage({ params }: { params: { raceId: string } 
               {race.status === "closed" && (
                 <form action={republishAction}>
                   <input type="hidden" name="raceId" value={race.id} />
-                  <button className="min-h-[40px] rounded bg-gray-100 px-3" type="submit">
+                  <SubmitButton className="min-h-[40px] rounded bg-gray-100 px-3" pendingLabel="Republishing…">
                     Republish now
-                  </button>
+                  </SubmitButton>
                 </form>
               )}
             </div>
@@ -228,9 +260,9 @@ export default async function RacePage({ params }: { params: { raceId: string } 
             <span>The public page is out of date with these results.</span>
             <form action={republishAction}>
               <input type="hidden" name="raceId" value={race.id} />
-              <button className="rounded bg-amber-900 px-3 py-1 text-white" type="submit">
+              <SubmitButton className="rounded bg-amber-900 px-3 py-1 text-white" pendingLabel="Updating…">
                 Update public results
-              </button>
+              </SubmitButton>
             </form>
           </div>
         )}
@@ -244,6 +276,8 @@ export default async function RacePage({ params }: { params: { raceId: string } 
             initialRows={resultRows}
             initialAcks={acks}
             allSchools={allSchools}
+            alsoIn={alsoIn}
+            autoRefresh={race.status === "open"}
           />
         </section>
 
@@ -296,6 +330,16 @@ export default async function RacePage({ params }: { params: { raceId: string } 
                   )}
                   {(s.state === "done" || s.state === "no_runners") && confirmed.has(s.id) && (
                     <SchoolStateButton raceId={race.id} schoolId={s.id} state="" label="Undo" />
+                  )}
+                  {s.entered > 0 && moveTargets.length > 0 && (
+                    <MoveEntries
+                      raceId={race.id}
+                      schoolId={s.id}
+                      schoolName={s.name}
+                      entered={s.entered}
+                      raceLabel={raceLabel(race)}
+                      targets={moveTargets}
+                    />
                   )}
                 </li>
               ))}
@@ -368,9 +412,9 @@ function SchoolStateButton({
       <input type="hidden" name="raceId" value={raceId} />
       <input type="hidden" name="schoolId" value={schoolId} />
       <input type="hidden" name="state" value={state} />
-      <button type="submit" className="min-h-[32px] rounded bg-gray-100 px-2 text-xs">
+      <SubmitButton className="min-h-[32px] rounded bg-gray-100 px-2 text-xs" pendingLabel="…">
         {label}
-      </button>
+      </SubmitButton>
     </form>
   );
 }

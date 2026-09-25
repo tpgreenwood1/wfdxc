@@ -8,9 +8,11 @@ import { isUuid } from "@/lib/ids";
 import { raceLabel, sortRaces } from "@/lib/races";
 import { getResultsForSchoolInRace, getSchoolRoster } from "@/lib/results";
 import SubmitForm from "@/app/components/SubmitForm";
+import SubmitButton from "@/app/components/SubmitButton";
 import CodeGate from "../../CodeGate";
 import { getConfirmedStatesForRace } from "@/lib/raceSchoolStatus";
 import {
+  claimRunnerAction,
   removeRaceResultAction,
   renameRunnerAction,
   saveRaceResultAction,
@@ -95,8 +97,7 @@ export default async function SchoolRaceEntryPage({
               ? "✓ You've told the scorer this race is complete. You can still make changes until it's finalised."
               : "Entered all your runners for this race? Let the scorer know so they can announce it."}
           </span>
-          <button
-            type="submit"
+          <SubmitButton
             className={
               markedDone
                 ? "min-h-[44px] rounded-lg bg-white px-4 text-sm font-medium ring-1 ring-gray-300"
@@ -104,12 +105,13 @@ export default async function SchoolRaceEntryPage({
             }
           >
             {markedDone ? "Undo" : "Race done"}
-          </button>
+          </SubmitButton>
         </form>
       )}
 
       {race.status !== "cancelled" && (
         <SubmitForm
+          storageKey={`xc-entry:${race.id}:${school.id}`}
           isEditable={isEditable}
           initialResults={existingResults}
           roster={roster}
@@ -117,6 +119,7 @@ export default async function SchoolRaceEntryPage({
           onRemove={removeRaceResultAction.bind(null, school.slug, race.id)}
           onRename={renameRunnerAction.bind(null, school.slug)}
           onSearchOtherSchools={searchOtherSchoolsAction.bind(null, school.slug)}
+          onClaimRunner={claimRunnerAction.bind(null, school.slug)}
         />
       )}
 
@@ -132,12 +135,9 @@ export default async function SchoolRaceEntryPage({
               ? "✓ You've told the scorer you had no runners in this race."
               : "Nobody from your school ran in this race?"}
           </span>
-          <button
-            type="submit"
-            className="min-h-[44px] rounded-lg bg-white px-4 text-sm font-medium ring-1 ring-gray-300"
-          >
+          <SubmitButton className="min-h-[44px] rounded-lg bg-white px-4 text-sm font-medium ring-1 ring-gray-300">
             {markedNoRunners ? "Undo" : "No runners"}
-          </button>
+          </SubmitButton>
         </form>
       )}
 

@@ -23,7 +23,7 @@ const TABS = [
 export default function AdminNav() {
   const pathname = usePathname();
   return (
-    <nav className="sticky top-0 z-20 border-b bg-white">
+    <nav className="sticky top-0 z-20 border-b bg-white print:hidden">
       <div className="mx-auto flex max-w-5xl overflow-x-auto px-2">
         {TABS.map((tab) => {
           const active = tab.match(pathname);

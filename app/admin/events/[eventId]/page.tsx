@@ -7,8 +7,11 @@ import { describeIssues } from "@/lib/raceIssues";
 import { chaseMessage, teacherLinkPath } from "@/lib/schools";
 import StatusBadge from "@/app/components/StatusBadge";
 import ConfirmSubmitButton from "@/app/components/ConfirmSubmitButton";
+import SubmitButton from "@/app/components/SubmitButton";
+import AutoRefresh from "@/app/components/AutoRefresh";
 import CopyLinkButton from "@/app/components/CopyLinkButton";
 import ShareLinkButton from "@/app/components/ShareLinkButton";
+import DoubleEntriesList from "../../DoubleEntriesList";
 import { setStatusAction } from "@/app/admin/races/[raceId]/actions";
 import {
   addRaceAction,
@@ -29,7 +32,7 @@ export default async function EventPage({
 }) {
   const board = await getEventBoard(params.eventId);
   if (!board) notFound();
-  const { event, races, schools, summary } = board;
+  const { event, races, schools, summary, doubleEntries } = board;
   const view = searchParams.view === "schools" ? "schools" : "races";
   const isToday = event.date === todayInLeague();
 
@@ -55,6 +58,7 @@ export default async function EventPage({
           {formatEventDate(event.date)}
           {event.location && ` · ${event.location}`}
         </p>
+        {races.some((r) => r.status === "open") && <AutoRefresh />}
         <details className="text-sm">
           <summary className="cursor-pointer text-blue-600">Edit event details</summary>
           <form action={updateEventAction} className="mt-2 flex flex-wrap gap-2">
@@ -82,11 +86,14 @@ export default async function EventPage({
           <ConfirmSubmitButton
             confirmMessage={`Finalise ${summary.readyToFinalise} race(s) that are ready? Their results go public and count towards standings. You can still correct them afterwards.`}
             className="min-h-[44px] w-full rounded bg-green-700 px-4 font-medium text-white sm:w-auto"
+            pendingLabel="Finalising…"
           >
             Finalise {summary.readyToFinalise} ready race{summary.readyToFinalise === 1 ? "" : "s"}
           </ConfirmSubmitButton>
         </form>
       )}
+
+      <DoubleEntriesList entries={doubleEntries} />
 
       <nav className="flex gap-2">
         <Link href={`/admin/events/${event.id}`} className={tab("races")}>
@@ -126,6 +133,27 @@ export default async function EventPage({
       ) : (
         <SchoolsChaseList schools={schools} eventId={event.id} eventName={event.name} />
       )}
+
+      <section className="flex flex-wrap gap-2 text-sm">
+        <Link
+          className="flex min-h-[40px] items-center rounded bg-gray-100 px-3"
+          href={`/admin/events/${event.id}/print`}
+        >
+          Print results
+        </Link>
+        <a
+          className="flex min-h-[40px] items-center rounded bg-gray-100 px-3"
+          href={`/admin/events/${event.id}/export`}
+        >
+          Download CSV (runners)
+        </a>
+        <a
+          className="flex min-h-[40px] items-center rounded bg-gray-100 px-3"
+          href={`/admin/events/${event.id}/export?kind=teams`}
+        >
+          Download CSV (teams)
+        </a>
+      </section>
 
       <p className="text-sm text-gray-500">
         <Link className="underline" href={`/admin/events/${event.id}/links`}>
@@ -193,6 +221,7 @@ function RaceCard({ race, eventId }: { race: BoardRace; eventId: string }) {
             <ConfirmSubmitButton
               confirmMessage={`Finalise ${race.label}? Results go public and count towards standings.`}
               className="min-h-[40px] rounded bg-green-700 px-3 text-sm text-white"
+              pendingLabel="Finalising…"
             >
               Finalise
             </ConfirmSubmitButton>
@@ -216,9 +245,9 @@ function RaceCard({ race, eventId }: { race: BoardRace; eventId: string }) {
             <input type="hidden" name="eventId" value={eventId} />
             <input type="hidden" name="raceId" value={race.id} />
             <input type="hidden" name="status" value="open" />
-            <button className="min-h-[40px] rounded bg-gray-100 px-3 text-sm" type="submit">
+            <SubmitButton className="min-h-[40px] rounded bg-gray-100 px-3 text-sm">
               Un-cancel
-            </button>
+            </SubmitButton>
           </form>
         )}
       </div>

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { events, races, results, schools } from "@/db/schema";
 import { isUuid } from "./ids";
@@ -39,6 +39,8 @@ export type EventBoard = {
   event: typeof events.$inferSelect;
   races: BoardRace[];
   schools: BoardSchool[];
+  /** Runners entered in more than one race of this event. */
+  doubleEntries: DoubleEntry[];
   summary: {
     finalised: number;
     cancelled: number;
@@ -61,7 +63,8 @@ export async function getEventBoard(eventId: string): Promise<EventBoard | null>
   const [event] = await db.select().from(events).where(eq(events.id, eventId));
   if (!event) return null;
 
-  const [eventRaces, allSchools, resultRows, acksByRace, confirmed] = await Promise.all([
+  const [eventRaces, allSchools, resultRows, acksByRace, confirmed, doubleEntries] =
+    await Promise.all([
     db.select().from(races).where(eq(races.eventId, eventId)),
     db.select().from(schools).orderBy(schools.name),
     db
@@ -76,6 +79,7 @@ export async function getEventBoard(eventId: string): Promise<EventBoard | null>
       .where(eq(races.eventId, eventId)),
     getPositionAcksForEvent(eventId),
     getConfirmedStatesForEvent(eventId),
+    getDoubleEntriesForEvent(eventId),
   ]);
   sortRaces(eventRaces);
 
@@ -140,6 +144,7 @@ export async function getEventBoard(eventId: string): Promise<EventBoard | null>
     event,
     races: boardRaces,
     schools: boardSchools,
+    doubleEntries,
     summary: {
       finalised: boardRaces.filter((r) => r.status === "closed").length,
       cancelled: boardRaces.filter((r) => r.status === "cancelled").length,
@@ -151,4 +156,63 @@ export async function getEventBoard(eventId: string): Promise<EventBoard | null>
       schoolsNotDone: boardSchools.filter((s) => s.progress !== "done").length,
     },
   };
+}
+
+export type DoubleEntry = {
+  runnerId: string;
+  runnerName: string;
+  races: { raceId: string; label: string; position: number; schoolName: string }[];
+};
+
+/**
+ * Runners with results in more than one (non-cancelled) race of the same event —
+ * almost always results typed into the wrong race, or the wrong child picked. Not
+ * blocking (the scorer decides), just surfaced next to the other things to check.
+ */
+export async function getDoubleEntriesForEvent(eventId: string): Promise<DoubleEntry[]> {
+  if (!isUuid(eventId)) return [];
+  const db = getDb();
+  const result = await db.execute<{
+    runnerId: string;
+    runnerName: string;
+    schoolName: string;
+    raceId: string;
+    yearGroup: string;
+    gender: string;
+    position: number;
+  }>(sql`
+    select res.runner_id as "runnerId", ru.name as "runnerName", s.name as "schoolName",
+      ra.id as "raceId", ra.year_group as "yearGroup", ra.gender as gender,
+      res.position as position
+    from results res
+    join races ra on ra.id = res.race_id
+    join runners ru on ru.id = res.runner_id
+    join schools s on s.id = res.school_id
+    where ra.event_id = ${eventId} and ra.status <> 'cancelled'
+      and res.runner_id in (
+        select res2.runner_id
+        from results res2
+        join races ra2 on ra2.id = res2.race_id
+        where ra2.event_id = ${eventId} and ra2.status <> 'cancelled'
+        group by res2.runner_id
+        having count(*) > 1
+      )
+  `);
+
+  const byRunner = new Map<string, DoubleEntry>();
+  for (const row of result.rows) {
+    const entry = byRunner.get(row.runnerId) ?? {
+      runnerId: row.runnerId,
+      runnerName: row.runnerName,
+      races: [],
+    };
+    entry.races.push({
+      raceId: row.raceId,
+      label: raceLabel(row),
+      position: row.position,
+      schoolName: row.schoolName,
+    });
+    byRunner.set(row.runnerId, entry);
+  }
+  return [...byRunner.values()].sort((a, b) => a.runnerName.localeCompare(b.runnerName));
 }

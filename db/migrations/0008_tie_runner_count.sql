@@ -1,0 +1,1 @@
+ALTER TABLE "race_position_acks" ADD COLUMN "runner_count" integer;

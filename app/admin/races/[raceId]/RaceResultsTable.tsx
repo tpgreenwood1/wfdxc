@@ -12,7 +12,14 @@ import {
 } from "@dnd-kit/core";
 import type { AdminResultRow } from "@/lib/results";
 import type { RunnerSearchResult } from "@/lib/runners";
-import { findRaceIssues, ordinal, type PositionAck } from "@/lib/raceIssues";
+import {
+  findRaceIssues,
+  isValidPosition,
+  MAX_POSITION,
+  ordinal,
+  type PositionAck,
+} from "@/lib/raceIssues";
+import AutoRefresh from "@/app/components/AutoRefresh";
 import {
   applySteps,
   invertSteps,
@@ -49,11 +56,16 @@ export default function RaceResultsTable({
   initialRows,
   initialAcks,
   allSchools,
+  alsoIn = {},
+  autoRefresh = false,
 }: {
   raceId: string;
   initialRows: AdminResultRow[];
   initialAcks: PositionAck[];
   allSchools: SchoolOption[];
+  /** runnerId -> other races at this event the runner is also entered in. */
+  alsoIn?: Record<string, string[]>;
+  autoRefresh?: boolean;
 }) {
   const [rows, setRows] = useState(initialRows);
   const [acks, setAcks] = useState(initialAcks);
@@ -272,8 +284,8 @@ export default function RaceResultsTable({
     setEditing(null);
     const position = Number(raw);
     if (raw.trim() === "" || position === row.position) return;
-    if (!Number.isInteger(position) || position < 1) {
-      setError("Place must be a whole number of 1 or more.");
+    if (!isValidPosition(position)) {
+      setError(`Place must be a whole number from 1 to ${MAX_POSITION}.`);
       return;
     }
     applyMove(planMove(row.id, position), `${row.runnerName} → ${ordinal(position)}`);
@@ -370,7 +382,10 @@ export default function RaceResultsTable({
       () =>
         setAcks((prev) => {
           const rest = prev.filter((a) => !(a.position === position && a.kind === kind));
-          return on ? [...rest, { position, kind, note: note.trim() || null }] : rest;
+          // Mirrors the server, which records how many share a tie when it's accepted.
+          const runnerCount =
+            kind === "tie" ? rows.filter((r) => r.position === position).length : null;
+          return on ? [...rest, { position, kind, note: note.trim() || null, runnerCount }] : rest;
         }),
       () =>
         ackPositionAction(
@@ -390,9 +405,16 @@ export default function RaceResultsTable({
   const movingRow = moving ? rowById.get(moving) : undefined;
   const draggingRow = dragging ? rowById.get(dragging) : undefined;
   const targeting = !!movingRow;
+  // Fresh server data would reset the list under an in-progress edit or drag.
+  const busy = !!(editing || moving || dragging || choice || isAdding || isPending);
 
   return (
     <div>
+      {autoRefresh && (
+        <div className="mb-1">
+          <AutoRefresh paused={busy} />
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="search"
@@ -458,8 +480,8 @@ export default function RaceResultsTable({
             allSchools={allSchools}
             onPick={(match) => {
               const position = Number(newPosition);
-              if (!Number.isInteger(position) || position < 1) {
-                setError("Place must be a whole number of 1 or more.");
+              if (!isValidPosition(position)) {
+                setError(`Place must be a whole number from 1 to ${MAX_POSITION}.`);
                 return;
               }
               addResultAt(position, match, true);
@@ -719,6 +741,7 @@ export default function RaceResultsTable({
                       <RunnerPicker
                         raceId={raceId}
                         allSchools={allSchools}
+                        defaultSchoolId={row.schoolId}
                         onPick={(match) => saveRunner(row, match)}
                         onCancel={() => setEditing(null)}
                       />
@@ -758,6 +781,11 @@ export default function RaceResultsTable({
                         </button>
                       )}
                     </div>
+                    {alsoIn[row.runnerId] && (
+                      <p className="mt-0.5 text-xs font-medium text-amber-800">
+                        ⚠ Also entered in {alsoIn[row.runnerId].join(", ")}
+                      </p>
+                    )}
                   </div>
 
                   {targeting && row.id !== moving ? (
@@ -989,11 +1017,15 @@ const SEARCH_DEBOUNCE_MS = 250;
 function RunnerPicker({
   raceId,
   allSchools,
+  defaultSchoolId = "",
   onPick,
   onCancel,
 }: {
   raceId: string;
   allSchools: SchoolOption[];
+  /** School preselected for a new runner — the row's school when replacing a runner;
+   * otherwise none, so the admin has to choose rather than inherit the first school. */
+  defaultSchoolId?: string;
   onPick: (match: RunnerSearchResult) => void;
   onCancel: () => void;
 }) {
@@ -1002,7 +1034,7 @@ function RunnerPicker({
   const [isSearching, setIsSearching] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newSchoolId, setNewSchoolId] = useState(allSchools[0]?.id ?? "");
+  const [newSchoolId, setNewSchoolId] = useState(defaultSchoolId);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1080,7 +1112,11 @@ function RunnerPicker({
           className="mt-1 min-h-[40px] w-full rounded border px-2 text-sm"
           value={newSchoolId}
           onChange={(e) => setNewSchoolId(e.target.value)}
+          aria-label="School"
         >
+          <option value="" disabled>
+            Choose school…
+          </option>
           {allSchools.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
@@ -1092,7 +1128,7 @@ function RunnerPicker({
           <button
             type="button"
             className="min-h-[40px] flex-1 rounded bg-blue-600 px-2 text-sm text-white disabled:opacity-50"
-            disabled={isSaving || !newName.trim()}
+            disabled={isSaving || !newName.trim() || !newSchoolId}
             onClick={handleCreate}
           >
             {isSaving ? "Adding…" : "Add & select"}

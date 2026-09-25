@@ -9,12 +9,12 @@ import {
   setRaceStatus,
   updateResultInline,
 } from "@/lib/races";
-import { deleteResult, upsertResult } from "@/lib/results";
+import { deleteResult, moveSchoolEntries, upsertResult } from "@/lib/results";
 import { publishRace, republishIfClosed } from "@/lib/publish";
 import { quickAddRunner } from "@/lib/runners";
 import { regenerateToken } from "@/lib/tokens";
 import { setConfirmedState, type ConfirmedState } from "@/lib/raceSchoolStatus";
-import { ordinal } from "@/lib/raceIssues";
+import { isValidPosition, MAX_POSITION, ordinal } from "@/lib/raceIssues";
 import { parseSteps } from "@/lib/positionOps";
 import type { RaceStatus } from "@/lib/types";
 
@@ -25,8 +25,10 @@ export type ActionResult = { error?: string };
 
 function parsePosition(raw: FormDataEntryValue | null): number | null {
   const n = Number(raw);
-  return Number.isInteger(n) && n >= 1 ? n : null;
+  return isValidPosition(n) ? n : null;
 }
+
+const BAD_PLACE = `Place must be a whole number from 1 to ${MAX_POSITION}.`;
 
 /** Everything that shows this race's results: admin views, the public page and — when
  * a finalised race is republished — season standings. */
@@ -70,7 +72,7 @@ export async function updateResultAction(formData: FormData): Promise<ActionResu
   const updates: { position?: number; runnerId?: string; schoolId?: string } = {};
   if (positionRaw !== null) {
     const position = parsePosition(positionRaw);
-    if (position === null) return { error: "Place must be a whole number of 1 or more." };
+    if (position === null) return { error: BAD_PLACE };
     updates.position = position;
   }
   if (runnerIdRaw) {
@@ -124,7 +126,7 @@ export async function addResultAction(
   const runnerId = String(formData.get("runnerId"));
   const schoolId = String(formData.get("schoolId"));
   const position = parsePosition(formData.get("position"));
-  if (position === null) return { error: "Place must be a whole number of 1 or more." };
+  if (position === null) return { error: BAD_PLACE };
 
   const existing = await findRunnerResultInRace(raceId, runnerId);
   if (existing) {
@@ -211,4 +213,24 @@ export async function regenerateTokenAction(formData: FormData): Promise<void> {
   const tokenId = String(formData.get("tokenId"));
   await regenerateToken(tokenId);
   revalidatePath(`/admin/races/${raceId}`);
+}
+
+/** Results typed into the wrong race: moves all of one school's entries from this race
+ * to another race in the same event, then republishes whichever of the two is
+ * finalised. */
+export async function moveSchoolEntriesAction(formData: FormData): Promise<ActionResult> {
+  const raceId = String(formData.get("raceId"));
+  const toRaceId = String(formData.get("toRaceId") ?? "");
+  const schoolId = String(formData.get("schoolId"));
+  if (!toRaceId) return { error: "Pick the race to move them to." };
+  try {
+    await moveSchoolEntries({ fromRaceId: raceId, toRaceId, schoolId });
+  } catch (err) {
+    console.error(err);
+    return { error: err instanceof Error ? err.message : "Couldn't move those results." };
+  }
+  const [a, b] = await Promise.all([republishIfClosed(raceId), republishIfClosed(toRaceId)]);
+  revalidateRace(raceId, a || b);
+  revalidateRace(toRaceId, a || b);
+  return {};
 }

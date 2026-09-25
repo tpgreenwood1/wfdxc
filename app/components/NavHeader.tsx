@@ -6,7 +6,7 @@ export default function NavHeader() {
   const lastSchoolSlug = cookies().get(LAST_SCHOOL_COOKIE)?.value;
 
   return (
-    <header className="border-b bg-gray-50">
+    <header className="border-b bg-gray-50 print:hidden">
       <nav className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-4 gap-y-1 p-3 text-sm">
         <Link className="font-semibold" href="/">
           XC League
@@ -22,7 +22,8 @@ export default function NavHeader() {
         <Link className="text-blue-600 underline" href="/standings">
           Standings
         </Link>
-        <Link className="text-blue-600 underline" href="/admin">
+        {/* No prefetch: a background fetch of /admin gets the basic-auth 401 and pops the browser login prompt. */}
+        <Link className="text-blue-600 underline" href="/admin" prefetch={false}>
           Admin
         </Link>
       </nav>

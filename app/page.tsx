@@ -71,7 +71,7 @@ export default async function HomePage() {
       </section>
 
       <p className="text-center text-sm">
-        <Link className="text-gray-500 underline" href="/admin">
+        <Link className="text-gray-500 underline" href="/admin" prefetch={false}>
           Scorer admin
         </Link>
       </p>

@@ -7,7 +7,9 @@ import { describeIssues } from "@/lib/raceIssues";
 import { chaseMessage, teacherLinkPath } from "@/lib/schools";
 import ShareLinkButton from "@/app/components/ShareLinkButton";
 import ConfirmSubmitButton from "@/app/components/ConfirmSubmitButton";
+import AutoRefresh from "@/app/components/AutoRefresh";
 import { finaliseReadyRacesAction } from "./events/[eventId]/actions";
+import DoubleEntriesList from "./DoubleEntriesList";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +37,7 @@ export default async function AdminTodayPage() {
 
   const board = await getEventBoard(current.id);
   if (!board) return null;
-  const { event, races, schools, summary } = board;
+  const { event, races, schools, summary, doubleEntries } = board;
   const isToday = event.date === today;
   const problemRaces = races.filter((r) => r.status !== "cancelled" && r.issues.openCount > 0);
   const schoolsToChase = schools
@@ -59,6 +61,7 @@ export default async function AdminTodayPage() {
           {formatEventDate(event.date)}
           {event.location && ` · ${event.location}`}
         </p>
+        {races.some((r) => r.status === "open") && <AutoRefresh />}
       </header>
 
       <section className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
@@ -83,6 +86,7 @@ export default async function AdminTodayPage() {
           <ConfirmSubmitButton
             confirmMessage={`Finalise ${summary.readyToFinalise} race(s) that are ready? Their results go public and count towards standings. You can still correct them afterwards.`}
             className="min-h-[48px] w-full rounded bg-green-700 px-4 font-medium text-white"
+            pendingLabel="Finalising…"
           >
             Finalise {summary.readyToFinalise} ready race{summary.readyToFinalise === 1 ? "" : "s"}
           </ConfirmSubmitButton>
@@ -107,6 +111,8 @@ export default async function AdminTodayPage() {
           </ul>
         </section>
       )}
+
+      <DoubleEntriesList entries={doubleEntries} />
 
       {schoolsToChase.length > 0 && (
         <section>

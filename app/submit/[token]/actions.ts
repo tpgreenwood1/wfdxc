@@ -11,7 +11,12 @@ import {
   type SaveResultRow,
   type SubmittedResult,
 } from "@/lib/results";
-import { renameRunner, searchOtherSchools, type RunnerSearchResult } from "@/lib/runners";
+import {
+  claimRunnerForSchool,
+  renameRunner,
+  searchOtherSchools,
+  type RunnerSearchResult,
+} from "@/lib/runners";
 import { toActionResult, type ActionResult } from "@/lib/actionResult";
 
 async function assertEditable(token: string) {
@@ -70,6 +75,16 @@ export async function renameRunnerAction(
     }
     if (!newName.trim()) throw new Error("Name can't be empty");
     await renameRunner(runnerId, newName);
+    revalidatePath(`/submit/${token}`);
+    return {};
+  });
+}
+
+/** "Move them to our list" after entering a transfer from another school. */
+export async function claimRunnerAction(token: string, runnerId: string): Promise<ActionResult> {
+  return toActionResult(async () => {
+    const ctx = await assertEditable(token);
+    await claimRunnerForSchool(runnerId, ctx.schoolId);
     revalidatePath(`/submit/${token}`);
     return {};
   });

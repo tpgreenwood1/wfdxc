@@ -80,6 +80,7 @@ export async function applyPositionSteps(
         position: racePositionAcks.position,
         kind: racePositionAcks.kind,
         note: racePositionAcks.note,
+        runnerCount: racePositionAcks.runnerCount,
       })
       .from(racePositionAcks)
       .where(eq(racePositionAcks.raceId, raceId));
@@ -103,13 +104,22 @@ export async function applyPositionSteps(
 
     // Acks are few and unique per (place, kind), so rewriting them avoids
     // transient unique clashes while shifting.
-    const key = (a: PositionAck) => `${a.position}:${a.kind}:${a.note ?? ""}`;
+    const key = (a: PositionAck) =>
+      `${a.position}:${a.kind}:${a.note ?? ""}:${a.runnerCount ?? ""}`;
     const acksChanged =
       acks.map(key).sort().join("|") !== out.acks.map(key).sort().join("|");
     if (acksChanged) {
       await tx.delete(racePositionAcks).where(eq(racePositionAcks.raceId, raceId));
       if (out.acks.length > 0) {
-        await tx.insert(racePositionAcks).values(out.acks.map((a) => ({ raceId, ...a })));
+        await tx.insert(racePositionAcks).values(
+          out.acks.map((a) => ({
+            raceId,
+            position: a.position,
+            kind: a.kind,
+            note: a.note ?? null,
+            runnerCount: a.runnerCount ?? null,
+          }))
+        );
       }
     }
     return {};
@@ -137,6 +147,7 @@ export async function getPositionAcks(raceId: string): Promise<PositionAck[]> {
       position: racePositionAcks.position,
       kind: racePositionAcks.kind,
       note: racePositionAcks.note,
+      runnerCount: racePositionAcks.runnerCount,
     })
     .from(racePositionAcks)
     .where(eq(racePositionAcks.raceId, raceId));
@@ -153,6 +164,7 @@ export async function getPositionAcksForEvent(
       position: racePositionAcks.position,
       kind: racePositionAcks.kind,
       note: racePositionAcks.note,
+      runnerCount: racePositionAcks.runnerCount,
     })
     .from(racePositionAcks)
     .innerJoin(races, eq(racePositionAcks.raceId, races.id))
@@ -166,6 +178,8 @@ export async function getPositionAcksForEvent(
   return byRace;
 }
 
+/** For a tie, records how many runners currently share the place (counted here, not
+ * trusted from the client) so a runner added there later re-opens the flag. */
 export async function setPositionAck(
   raceId: string,
   position: number,
@@ -173,12 +187,20 @@ export async function setPositionAck(
   note: string | null
 ): Promise<void> {
   const db = getDb();
+  let runnerCount: number | null = null;
+  if (kind === "tie") {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(results)
+      .where(and(eq(results.raceId, raceId), eq(results.position, position)));
+    runnerCount = row?.count ?? null;
+  }
   await db
     .insert(racePositionAcks)
-    .values({ raceId, position, kind, note })
+    .values({ raceId, position, kind, note, runnerCount })
     .onConflictDoUpdate({
       target: [racePositionAcks.raceId, racePositionAcks.position, racePositionAcks.kind],
-      set: { note },
+      set: { note, runnerCount },
     });
 }
 

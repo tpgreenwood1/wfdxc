@@ -5,6 +5,7 @@ import type { RosterRunner, SaveResultRow, SubmittedResult } from "@/lib/results
 import type { RunnerSearchResult } from "@/lib/runners";
 import type { ActionResult } from "@/lib/actionResult";
 import { filterRoster } from "@/lib/rosterFilter";
+import { HIGH_POSITION_WARNING, MAX_POSITION } from "@/lib/raceIssues";
 
 type Row = {
   key: string;
@@ -20,21 +21,28 @@ type Row = {
   savedPosition: number | null;
   saving: boolean;
   error?: string;
+  /** The save never reached the server (no signal) — retried automatically. Errors
+   * the server sent back (race closed, already entered…) aren't retried. */
+  retryable?: boolean;
+  /** Saved a child from another school's list — offer to move them onto ours. */
+  offerClaim?: boolean;
 };
 
 const AUTOSAVE_DELAY_MS = 700;
 const UNDO_MS = 6000;
+const RETRY_EVERY_MS = 15_000;
+const OFFLINE_MSG = "Couldn't reach the server — check your signal.";
 
 let keyCounter = 0;
 const newKey = () => `new-${Date.now()}-${keyCounter++}`;
 
-/** A whole number ≥ 1, "blank", or "invalid" (decimals, zero, negatives). */
+/** A whole number from 1 to MAX_POSITION, "blank", or "invalid". */
 function parsePosition(value: string): number | "blank" | "invalid" {
   const s = value.trim();
   if (s === "") return "blank";
   if (!/^\d+$/.test(s)) return "invalid";
   const n = Number(s);
-  return n >= 1 ? n : "invalid";
+  return n >= 1 && n <= MAX_POSITION ? n : "invalid";
 }
 
 function existingToRows(existing: SubmittedResult[]): Row[] {
@@ -52,15 +60,63 @@ function displayName(r: { name: string; duplicateCount: number; duplicateIndex: 
   return r.duplicateCount > 1 ? `${r.name} (${r.duplicateIndex})` : r.name;
 }
 
+/** Not yet safely on the server: never saved, edited since, or failed. */
+function isUnsaved(r: Row): boolean {
+  return r.savedPosition === null || !!r.error || parsePosition(r.position) !== r.savedPosition;
+}
+
+// ---- Keeping unsaved entries on the phone -------------------------------------
+// Race-day signal at a school field is patchy. Anything not yet saved is mirrored to
+// localStorage so a locked phone, a closed tab or a reload doesn't lose it; it's put
+// back (and saved) next time this race's form opens on this phone.
+
+type StoredRow = Pick<Row, "runnerId" | "runnerName" | "newRunnerName" | "otherSchool" | "position">;
+const STORE_VERSION = 1;
+const STORE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function readStored(key: string): StoredRow[] {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return [];
+    const data = JSON.parse(raw);
+    if (data?.v !== STORE_VERSION || Date.now() - data.savedAt > STORE_MAX_AGE_MS) return [];
+    return Array.isArray(data.rows) ? data.rows : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeStored(key: string, rows: StoredRow[]) {
+  try {
+    if (rows.length === 0) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, JSON.stringify({ v: STORE_VERSION, savedAt: Date.now(), rows }));
+  } catch {
+    // Private mode / storage full: the form still works, just without the backup.
+  }
+}
+
+function toStored(r: Row): StoredRow {
+  return {
+    runnerId: r.runnerId,
+    runnerName: r.runnerName,
+    newRunnerName: r.newRunnerName,
+    otherSchool: r.otherSchool,
+    position: r.position,
+  };
+}
+
 /**
  * Teacher results entry for one (race, school). Each runner's row saves itself as soon
  * as it has a position (on Enter, leaving the box, or a short pause in typing), so
  * there's no Save button to forget and moving to another race never loses work.
+ * Unsaved rows are also kept on the phone and retried automatically when the signal
+ * comes back.
  *
  * The server actions are passed in already bound to however the caller authenticates
  * (per-race token or school home page), so this component doesn't know or care which.
  */
 export default function SubmitForm({
+  storageKey,
   isEditable,
   initialResults,
   roster,
@@ -68,7 +124,10 @@ export default function SubmitForm({
   onRemove,
   onRename,
   onSearchOtherSchools,
+  onClaimRunner,
 }: {
+  /** Identifies this (race, school) in the phone's storage — `xc-entry:${raceId}:${schoolId}`. */
+  storageKey: string;
   isEditable: boolean;
   initialResults: SubmittedResult[];
   roster: RosterRunner[];
@@ -78,14 +137,21 @@ export default function SubmitForm({
   onSearchOtherSchools?: (
     query: string
   ) => Promise<ActionResult<{ matches: RunnerSearchResult[] }>>;
+  onClaimRunner?: (runnerId: string) => Promise<ActionResult>;
 }) {
   const [rows, setRows] = useState<Row[]>(() => existingToRows(initialResults));
   // Mirror of `rows` that async save chains read, so they always see the latest edit.
   const rowsRef = useRef(rows);
   const [message, setMessage] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [renamingKey, setRenamingKey] = useState<string | null>(null);
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const [undo, setUndo] = useState<Row | null>(null);
+  const [online, setOnline] = useState(true);
+  // Unsaved entries found on this phone for a race that's since been finalised.
+  const [stranded, setStranded] = useState<StoredRow[]>([]);
+  // Runners moved onto this school's list from this form (rename becomes allowed).
+  const [claimedIds, setClaimedIds] = useState<Set<string>>(new Set());
 
   // Per-row save queue: each row's saves (and its removal) run strictly one after
   // another, so a quick-added runner is only ever created once.
@@ -97,6 +163,8 @@ export default function SubmitForm({
   const positionInputs = useRef(new Map<string, HTMLInputElement>());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Don't mirror to storage until anything already stored has been read back.
+  const restored = useRef(false);
 
   const rosterIds = new Set(roster.map((r) => r.id));
 
@@ -133,8 +201,9 @@ export default function SubmitForm({
     if (typeof position !== "number") return;
     if (position === row.savedPosition && !row.error) return;
 
-    patch(key, { saving: true, error: undefined });
+    patch(key, { saving: true, error: undefined, retryable: undefined });
     let res: Awaited<ReturnType<typeof onSaveRow>>;
+    let reachedServer = true;
     try {
       res = await onSaveRow({
         runnerId: row.runnerId,
@@ -142,11 +211,12 @@ export default function SubmitForm({
         position,
       });
     } catch {
-      res = { error: "Couldn't reach the server — check your signal." };
+      reachedServer = false;
+      res = { error: OFFLINE_MSG };
     }
 
     if (res.error !== undefined) {
-      patch(key, { saving: false, error: res.error });
+      patch(key, { saving: false, error: res.error, retryable: !reachedServer });
       return;
     }
     const { result } = res;
@@ -160,7 +230,14 @@ export default function SubmitForm({
       runnerName: current.runnerId ? current.runnerName : result.runnerName,
       newRunnerName: undefined,
       savedPosition: result.position,
+      offerClaim: !!current.otherSchool && !!onClaimRunner && current.savedPosition === null,
     });
+  }
+
+  function retryFailed(onlyRetryable: boolean) {
+    for (const r of rowsRef.current) {
+      if (r.error && (!onlyRetryable || r.retryable)) queueSave(r.key);
+    }
   }
 
   function addRow(fields: Pick<Row, "runnerId" | "runnerName" | "newRunnerName" | "otherSchool">) {
@@ -171,7 +248,7 @@ export default function SubmitForm({
   }
 
   function changePosition(key: string, value: string) {
-    patch(key, { position: value, error: undefined });
+    patch(key, { position: value, error: undefined, retryable: undefined });
     clearTimer(key);
     timers.current.set(
       key,
@@ -200,8 +277,26 @@ export default function SubmitForm({
       const saved = savedResults.current.get(row.key);
       if (!saved) return;
       savedResults.current.delete(row.key);
-      const res = await onRemove(saved.id).catch(() => ({ error: "Couldn't reach the server." }));
-      if (res.error !== undefined) setMessage(`Couldn't remove ${row.runnerName}: ${res.error}`);
+      const res = await onRemove(saved.id).catch(() => ({ error: OFFLINE_MSG }));
+      if (res.error !== undefined) {
+        // Still on the server, so put it back on screen rather than pretend it's gone.
+        savedResults.current.set(row.key, saved);
+        mutate((prev) =>
+          prev.some((r) => r.key === row.key)
+            ? prev
+            : [
+                ...prev,
+                {
+                  ...row,
+                  position: String(saved.position),
+                  savedPosition: saved.position,
+                  saving: false,
+                  error: undefined,
+                },
+              ]
+        );
+        setMessage(`Couldn't remove ${row.runnerName || row.newRunnerName}: ${res.error}`);
+      }
     });
   }
 
@@ -230,6 +325,7 @@ export default function SubmitForm({
         savedPosition: null,
         saving: false,
         error: undefined,
+        retryable: undefined,
       },
     ]);
     setUndo(null);
@@ -250,6 +346,88 @@ export default function SubmitForm({
     }
   }
 
+  async function claim(row: Row) {
+    if (!row.runnerId || !onClaimRunner) return;
+    patch(row.key, { offerClaim: false });
+    const res = await onClaimRunner(row.runnerId).catch(() => ({ error: OFFLINE_MSG }));
+    if (res.error !== undefined) {
+      patch(row.key, { offerClaim: true });
+      setMessage(res.error);
+      return;
+    }
+    patch(row.key, { otherSchool: undefined });
+    setClaimedIds((prev) => new Set(prev).add(row.runnerId!));
+  }
+
+  // Put back anything this phone had entered but not saved (closed tab, no signal).
+  useEffect(() => {
+    const stored = readStored(storageKey);
+    restored.current = true;
+    if (stored.length === 0) return;
+    if (!isEditable) {
+      setStranded(stored);
+      return;
+    }
+    const toSave: string[] = [];
+    mutate((prev) => {
+      let next = prev;
+      for (const s of stored) {
+        const existing = s.runnerId
+          ? next.find((r) => r.runnerId === s.runnerId)
+          : next.find((r) => !r.runnerId && r.newRunnerName === s.newRunnerName);
+        if (existing) {
+          if (s.position.trim() !== "" && s.position !== existing.position) {
+            next = next.map((r) => (r.key === existing.key ? { ...r, position: s.position } : r));
+            toSave.push(existing.key);
+          }
+          continue;
+        }
+        const key = newKey();
+        next = [...next, { key, ...s, savedPosition: null, saving: false }];
+        toSave.push(key);
+      }
+      return next;
+    });
+    if (toSave.length > 0) {
+      setNotice(
+        `Put back ${toSave.length} entr${toSave.length === 1 ? "y" : "ies"} from this phone that hadn't saved yet — saving now.`
+      );
+      toSave.forEach((k) => queueSave(k));
+    }
+    // Runs once on open; the form's own state takes over from here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Mirror unsaved rows to the phone after every change.
+  useEffect(() => {
+    if (!restored.current || !isEditable) return;
+    writeStored(storageKey, rows.filter(isUnsaved).map(toStored));
+  }, [rows, storageKey, isEditable]);
+
+  // Track signal, and retry saves that never reached the server when it returns.
+  const hasRetryable = rows.some((r) => r.error && r.retryable);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    update();
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+  useEffect(() => {
+    if (!hasRetryable) return;
+    const retry = () => retryFailed(true);
+    const id = setInterval(() => navigator.onLine && retry(), RETRY_EVERY_MS);
+    window.addEventListener("online", retry);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("online", retry);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasRetryable]);
+
   // Picking a runner jumps straight to their position box (numeric keypad on phones).
   useEffect(() => {
     if (!focusKey) return;
@@ -267,7 +445,7 @@ export default function SubmitForm({
         parsePosition(r.position) !== r.savedPosition)
   );
 
-  // Only a full page unload can cut off a save; in-app navigation lets it finish.
+  // Unsaved rows are also kept on the phone, but warn anyway where the browser allows.
   useEffect(() => {
     if (!pending) return;
     const warn = (e: BeforeUnloadEvent) => e.preventDefault();
@@ -290,21 +468,40 @@ export default function SubmitForm({
   }
   const duplicatePositions = [...positionCounts].filter(([, n]) => n > 1).map(([p]) => p);
   const missingPositions = rows.filter((r) => parsePosition(r.position) === "blank").length;
-  const failed = rows.filter((r) => r.error);
+  const highPositions = [...positionCounts.keys()].filter((p) => p > HIGH_POSITION_WARNING);
+  const rejected = rows.filter((r) => r.error && !r.retryable);
+  const waiting = rows.filter((r) => r.error && r.retryable);
+  const unsavedCount = rows.filter(
+    (r) => typeof parsePosition(r.position) === "number" && isUnsaved(r)
+  ).length;
   const saving = rows.some((r) => r.saving);
 
   let status: ReactNode = null;
-  if (failed.length > 0) {
+  if (rejected.length > 0) {
     status = (
       <span className="text-red-700">
-        {failed.length === 1 ? `${failed[0].runnerName} couldn't save` : `${failed.length} couldn't save`}
+        {rejected.length === 1
+          ? `${rejected[0].runnerName || rejected[0].newRunnerName} couldn't save — see below`
+          : `${rejected.length} couldn't save — see below`}
         {" — "}
-        <button
-          type="button"
-          className="font-medium underline"
-          onClick={() => failed.forEach((r) => queueSave(r.key))}
-        >
+        <button type="button" className="font-medium underline" onClick={() => retryFailed(false)}>
           Retry
+        </button>
+      </span>
+    );
+  } else if (!online && unsavedCount > 0) {
+    status = (
+      <span className="text-amber-800">
+        No signal — {unsavedCount} entr{unsavedCount === 1 ? "y is" : "ies are"} kept on this phone
+        and will save automatically when you&apos;re back online.
+      </span>
+    );
+  } else if (waiting.length > 0) {
+    status = (
+      <span className="text-amber-800">
+        {waiting.length} not saved yet — kept on this phone, retrying automatically.{" "}
+        <button type="button" className="font-medium underline" onClick={() => retryFailed(true)}>
+          Retry now
         </button>
       </span>
     );
@@ -316,12 +513,47 @@ export default function SubmitForm({
 
   return (
     <div className="mt-4 space-y-4">
-      {isEditable && (status || undo || message) && (
+      {stranded.length > 0 && (
+        <div role="alert" className="space-y-2 rounded-lg bg-red-50 p-3 text-sm text-red-900">
+          <p className="font-medium">
+            This phone has {stranded.length} entr{stranded.length === 1 ? "y" : "ies"} that
+            didn&apos;t save before the race was finalised. Please tell the scorer:
+          </p>
+          <ul className="list-disc pl-5">
+            {stranded.map((s, i) => (
+              <li key={i}>
+                {s.runnerName || s.newRunnerName}
+                {s.position.trim() ? ` — ${s.position}` : " — no position"}
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            className="min-h-[40px] rounded bg-white px-3 font-medium ring-1 ring-red-300"
+            onClick={() => {
+              writeStored(storageKey, []);
+              setStranded([]);
+            }}
+          >
+            I&apos;ve told the scorer — clear these
+          </button>
+        </div>
+      )}
+
+      {isEditable && (status || undo || message || notice) && (
         <div
           className="sticky top-0 z-10 -mx-4 space-y-1 border-b bg-white/95 px-4 py-2 text-sm backdrop-blur"
           aria-live="polite"
         >
           {status && <p>{status}</p>}
+          {notice && (
+            <p className="text-blue-800">
+              {notice}{" "}
+              <button type="button" className="underline" onClick={() => setNotice(null)}>
+                OK
+              </button>
+            </p>
+          )}
           {undo && (
             <p className="text-gray-700">
               Removed {undo.runnerName || undo.newRunnerName}{" "}
@@ -344,15 +576,18 @@ export default function SubmitForm({
 
       <ul className="space-y-2">
         {rows.map((row) => {
-          const canRename = isEditable && row.runnerId && rosterIds.has(row.runnerId);
+          const canRename =
+            isEditable &&
+            row.runnerId &&
+            (rosterIds.has(row.runnerId) || claimedIds.has(row.runnerId));
           const isRenaming = renamingKey === row.key;
           const parsed = parsePosition(row.position);
           const isDuplicate = typeof parsed === "number" && duplicatePositions.includes(parsed);
           const inputTone = !isEditable
             ? ""
-            : parsed === "invalid" || row.error
+            : parsed === "invalid" || (row.error && !row.retryable)
               ? "border-red-500 bg-red-50"
-              : parsed === "blank" || isDuplicate
+              : parsed === "blank" || isDuplicate || row.retryable
                 ? "border-amber-400 bg-amber-50"
                 : "";
           return (
@@ -434,9 +669,36 @@ export default function SubmitForm({
                 )}
               </div>
               {isEditable && parsed === "invalid" && (
-                <p className="mt-1 text-xs text-red-700">Position must be a whole number, 1 or more.</p>
+                <p className="mt-1 text-xs text-red-700">
+                  Position must be a whole number from 1 to {MAX_POSITION}.
+                </p>
               )}
-              {isEditable && row.error && <p className="mt-1 text-xs text-red-700">{row.error}</p>}
+              {isEditable && row.error && (
+                <p className={`mt-1 text-xs ${row.retryable ? "text-amber-800" : "text-red-700"}`}>
+                  {row.retryable ? "Not saved yet — no signal. Kept on this phone; will retry." : row.error}
+                </p>
+              )}
+              {isEditable && row.offerClaim && row.otherSchool && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 rounded bg-blue-50 p-2 text-sm">
+                  <span className="flex-1 text-blue-900">
+                    Move {row.runnerName} from {row.otherSchool} onto your school&apos;s list?
+                  </span>
+                  <button
+                    type="button"
+                    className="min-h-[40px] rounded bg-blue-600 px-3 font-medium text-white"
+                    onClick={() => claim(row)}
+                  >
+                    Move
+                  </button>
+                  <button
+                    type="button"
+                    className="min-h-[40px] px-2 text-blue-800"
+                    onClick={() => patch(row.key, { offerClaim: false })}
+                  >
+                    Not now
+                  </button>
+                </div>
+              )}
             </li>
           );
         })}
@@ -446,6 +708,12 @@ export default function SubmitForm({
         <p className="text-sm text-amber-700">
           Two of your runners have the same position ({duplicatePositions.join(", ")}) — check
           they&apos;re right.
+        </p>
+      )}
+      {isEditable && highPositions.length > 0 && (
+        <p className="text-sm text-amber-700">
+          {highPositions.join(", ")} {highPositions.length === 1 ? "is" : "are"} a very high
+          position — check {highPositions.length === 1 ? "it's" : "they're"} right.
         </p>
       )}
       {isEditable && missingPositions > 0 && (

@@ -209,6 +209,9 @@ export const racePositionAcks = pgTable(
     position: integer("position").notNull(),
     kind: positionAckKindEnum("kind").notNull(),
     note: text("note"),
+    // Ties only: how many runners shared the place when it was accepted, so a later
+    // runner on the same place is flagged again. Null on rows from before this column.
+    runnerCount: integer("runner_count"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

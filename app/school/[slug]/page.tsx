@@ -134,6 +134,7 @@ export default async function SchoolRacesPage({
               <ConfirmSubmitButton
                 confirmMessage={doneConfirmMessage}
                 className="min-h-[48px] w-full rounded-lg bg-green-700 px-4 font-semibold text-white"
+                pendingLabel="Saving…"
               >
                 We&apos;re done for {isToday ? "today" : "this event"}
               </ConfirmSubmitButton>

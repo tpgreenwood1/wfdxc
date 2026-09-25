@@ -19,6 +19,7 @@ import {
   type SubmittedResult,
 } from "@/lib/results";
 import {
+  claimRunnerForSchool,
   quickAddRunner,
   reactivateRunner,
   renameRunner,
@@ -158,6 +159,16 @@ export async function searchOtherSchoolsAction(
   return toActionResult(async () => {
     const school = await requireSchoolAccess(slug);
     return { matches: await searchOtherSchools(school.id, query) };
+  });
+}
+
+/** "Move them to our list" after entering a transfer from another school. */
+export async function claimRunnerAction(slug: string, runnerId: string): Promise<ActionResult> {
+  return toActionResult(async () => {
+    const school = await requireSchoolAccess(slug);
+    await claimRunnerForSchool(runnerId, school.id);
+    revalidateSchool(slug);
+    return {};
   });
 }
 
