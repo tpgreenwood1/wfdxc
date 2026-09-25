@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { getDb } from "@/db/client";
 import { schools } from "@/db/schema";
 import { LAST_SCHOOL_COOKIE } from "@/lib/schoolAccess";
+import HelpButton from "./components/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,10 @@ export default async function HomePage() {
 
   return (
     <main className="mx-auto max-w-md space-y-8 p-4">
-      <h1 className="text-2xl font-bold">Junior XC League</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">Junior XC League</h1>
+        <HelpButton topics={["home", "scoring"]} />
+      </div>
 
       {lastSchool && (
         <Link

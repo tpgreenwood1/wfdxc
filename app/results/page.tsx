@@ -2,6 +2,7 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { events, seasons } from "@/db/schema";
+import HelpButton from "@/app/components/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,10 @@ export default async function ResultsIndexPage() {
 
   return (
     <main className="mx-auto max-w-2xl space-y-6 p-6">
-      <h1 className="text-2xl font-bold">Results</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">Results</h1>
+        <HelpButton topics={["results", "scoring"]} />
+      </div>
 
       {allEvents.length === 0 && (
         <p className="text-gray-600">No events yet.</p>

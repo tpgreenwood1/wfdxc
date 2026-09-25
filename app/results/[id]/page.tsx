@@ -6,6 +6,7 @@ import { events, races } from "@/db/schema";
 import { getPublishedRaceResults } from "@/lib/public-results";
 import { isUuid } from "@/lib/ids";
 import { sortRaces } from "@/lib/raceLabels";
+import HelpButton from "@/app/components/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -64,9 +65,12 @@ async function EventRaceList({
 
   return (
     <main className="mx-auto max-w-2xl p-6">
-      <h1 className="text-2xl font-bold">
-        {eventName} — {eventDate}
-      </h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">
+          {eventName} — {eventDate}
+        </h1>
+        <HelpButton topics={["results", "scoring"]} />
+      </div>
       <ul className="mt-4 space-y-1">
         {closedRaces.map((race) => (
           <li key={race.id}>
@@ -106,9 +110,12 @@ async function RaceResults({
 
   return (
     <main className="mx-auto max-w-2xl space-y-6 p-6">
-      <h1 className="text-2xl font-bold">
-        {yearGroup.toUpperCase()} · {gender}
-      </h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">
+          {yearGroup.toUpperCase()} · {gender}
+        </h1>
+        <HelpButton topics={["results", "scoring"]} />
+      </div>
 
       {beingCorrected && (
         <p className="rounded bg-amber-100 p-3 text-sm text-amber-900">

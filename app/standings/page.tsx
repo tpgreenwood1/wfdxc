@@ -3,6 +3,7 @@ import { getDb } from "@/db/client";
 import { seasons } from "@/db/schema";
 import { getSeasonStandings } from "@/lib/standings-query";
 import type { Gender, YearGroup } from "@/lib/types";
+import HelpButton from "@/app/components/HelpButton";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,10 @@ export default async function StandingsPage({
 
   return (
     <main className="mx-auto max-w-2xl space-y-4 p-6">
-      <h1 className="text-2xl font-bold">Season standings</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">Season standings</h1>
+        <HelpButton topics={["standings", "scoring"]} />
+      </div>
 
       <form className="flex flex-wrap gap-2 text-sm" method="get">
         <select name="seasonId" defaultValue={seasonId} className="rounded border px-2 py-1">

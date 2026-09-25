@@ -7,6 +7,7 @@ import { resolveToken } from "@/lib/tokens";
 import { getOrCreateHubToken } from "@/lib/hubTokens";
 import { getResultsForSchoolInRace, getSchoolRoster } from "@/lib/results";
 import SubmitForm from "@/app/components/SubmitForm";
+import HelpButton from "@/app/components/HelpButton";
 import {
   claimRunnerAction,
   removeResult,
@@ -40,7 +41,10 @@ export default async function SubmitPage({
           &larr; Back to all races
         </Link>
       )}
-      <h1 className="text-xl font-bold">{ctx.schoolName}</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-xl font-bold">{ctx.schoolName}</h1>
+        <HelpButton topics={["entry"]} />
+      </div>
       <p className="text-gray-600">
         {ctx.yearGroup.toUpperCase()} · {ctx.gender}
       </p>

@@ -812,14 +812,23 @@ function RunnerPicker({
 
   return (
     <div className="rounded border p-2">
+      <label htmlFor="runner-picker" className="block font-semibold">
+        Add a runner
+      </label>
+      <p id="runner-picker-hint" className="mb-1 text-sm text-gray-600">
+        {roster.length === 0
+          ? "Your list is empty — type a runner's name to add them."
+          : "Type their name. Not on your list? Type their full name and tap + Add new runner."}
+      </p>
       <input
         ref={inputRef}
+        id="runner-picker"
+        aria-describedby="runner-picker-hint"
         type="search"
         enterKeyHint="done"
         autoComplete="off"
         className="min-h-[44px] w-full rounded border px-3 text-base"
-        placeholder="Type a name to find a runner…"
-        aria-label="Find a runner"
+        placeholder="Type a runner's name…"
         value={query}
         onChange={(e) => {
           setQuery(e.target.value);
@@ -857,7 +866,10 @@ function RunnerPicker({
         <p className="mt-1 text-xs text-gray-500">Everyone on your list has been added.</p>
       )}
       {trimmed !== "" && matches.length === 0 && (
-        <p className="mt-1 text-xs text-gray-500">Nobody on your list matches &ldquo;{trimmed}&rdquo;.</p>
+        <p className="mt-1 text-sm text-gray-600">
+          Nobody on your list matches &ldquo;{trimmed}&rdquo;.
+          {trimmed.length < 2 ? " Keep typing their full name, then tap + Add new runner." : " New runner? Tap + Add new runner below."}
+        </p>
       )}
 
       {trimmed.length >= 2 && (

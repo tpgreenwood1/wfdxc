@@ -109,6 +109,34 @@ export default async function SchoolRaceEntryPage({
         </form>
       )}
 
+      {/* Same slot as "Race done": until something is entered, the first choice is
+          whether anyone ran at all. Below the form it was lost under the roster list.
+          Entering a runner clears a "no runners" mark server-side, so the form stays usable. */}
+      {isEditable && existingResults.length === 0 && (
+        <form
+          action={setNoRunnersAction.bind(null, school.slug, race.id, !markedNoRunners)}
+          className={`mt-3 flex flex-wrap items-center gap-2 rounded-lg p-3 ${
+            markedNoRunners ? "bg-gray-100" : "border border-dashed"
+          }`}
+        >
+          <span className="flex-1 text-sm text-gray-700">
+            {markedNoRunners ? (
+              "✓ You've told the scorer nobody from your school ran in this race."
+            ) : (
+              <>
+                <span className="block font-medium text-gray-900">
+                  Did anyone from your school run in this race?
+                </span>
+                If not, tap No runners. Otherwise, add your runners below.
+              </>
+            )}
+          </span>
+          <SubmitButton className="min-h-[44px] rounded-lg bg-white px-4 text-sm font-medium ring-1 ring-gray-300">
+            {markedNoRunners ? "Undo" : "No runners"}
+          </SubmitButton>
+        </form>
+      )}
+
       {race.status !== "cancelled" && (
         <SubmitForm
           storageKey={`xc-entry:${race.id}:${school.id}`}
@@ -121,24 +149,6 @@ export default async function SchoolRaceEntryPage({
           onSearchOtherSchools={searchOtherSchoolsAction.bind(null, school.slug)}
           onClaimRunner={claimRunnerAction.bind(null, school.slug)}
         />
-      )}
-
-      {isEditable && existingResults.length === 0 && (
-        <form
-          action={setNoRunnersAction.bind(null, school.slug, race.id, !markedNoRunners)}
-          className={`mt-4 flex flex-wrap items-center gap-2 rounded-lg p-3 ${
-            markedNoRunners ? "bg-gray-100" : "border border-dashed"
-          }`}
-        >
-          <span className="flex-1 text-sm text-gray-700">
-            {markedNoRunners
-              ? "✓ You've told the scorer you had no runners in this race."
-              : "Nobody from your school ran in this race?"}
-          </span>
-          <SubmitButton className="min-h-[44px] rounded-lg bg-white px-4 text-sm font-medium ring-1 ring-gray-300">
-            {markedNoRunners ? "Undo" : "No runners"}
-          </SubmitButton>
-        </form>
       )}
 
       <nav className="mt-6 grid grid-cols-2 gap-2" aria-label="Other races">

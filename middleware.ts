@@ -23,15 +23,6 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // A router prefetch (e.g. a <Link href="/admin"> on a public page) must not
-  // carry WWW-Authenticate, or the browser shows the login prompt unprompted.
-  const isPrefetch =
-    request.headers.get("next-router-prefetch") === "1" ||
-    request.headers.get("purpose") === "prefetch";
-  if (isPrefetch) {
-    return new NextResponse(null, { status: 401 });
-  }
-
   return new NextResponse("Authentication required", {
     status: 401,
     headers: { "WWW-Authenticate": 'Basic realm="Admin"' },
