@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { events, races, results, schools } from "@/db/schema";
+import { isUuid } from "./ids";
 import { getPositionAcksForEvent, raceLabel, sortRaces } from "./races";
 import { findRaceIssues, type RaceIssues } from "./raceIssues";
 import {
@@ -29,6 +30,9 @@ export type BoardSchool = School & {
   racesEntered: number;
   /** Open races this school hasn't entered or confirmed — what to chase them for. */
   outstanding: { raceId: string; label: string }[];
+  /** Open races with runners entered but not yet marked done — these hold the race
+   * back from finalising too. */
+  notMarkedDone: { raceId: string; label: string }[];
 };
 
 export type EventBoard = {
@@ -52,6 +56,7 @@ export type EventBoard = {
  * the "finalise all ready races" action so they all agree on what "ready" means.
  */
 export async function getEventBoard(eventId: string): Promise<EventBoard | null> {
+  if (!isUuid(eventId)) return null;
   const db = getDb();
   const [event] = await db.select().from(events).where(eq(events.id, eventId));
   if (!event) return null;
@@ -124,6 +129,9 @@ export async function getEventBoard(eventId: string): Promise<EventBoard | null>
         .length,
       outstanding: states
         .filter((s) => s.state === "not_started")
+        .map((s) => ({ raceId: s.race.id, label: s.race.label })),
+      notMarkedDone: states
+        .filter((s) => s.state === "entering")
         .map((s) => ({ raceId: s.race.id, label: s.race.label })),
     };
   });

@@ -1,6 +1,12 @@
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { racePositionAcks, races, results } from "@/db/schema";
+import {
+  publishedIndividualResults,
+  publishedTeamResults,
+  racePositionAcks,
+  races,
+  results,
+} from "@/db/schema";
 import { publishRace } from "./publish";
 import type { PositionAck } from "./raceIssues";
 import { applySteps, type PositionStep } from "./positionOps";
@@ -13,15 +19,30 @@ export { YEAR_GROUP_ORDER, raceLabel, sortRaces } from "./raceLabels";
 /**
  * Flipping to 'closed' triggers the one-time publish step. Flipping back to 'open'
  * (e.g. to accept a late correction) is a normal admin action, not a distinct
- * lifecycle state — the published snapshot is left as-is until closed again.
+ * lifecycle state — the published snapshot is left as-is (still public, still in
+ * standings) until closed again. Cancelling removes the snapshot, so a cancelled race
+ * never shows publicly or counts towards standings even if it had been finalised.
  */
 export async function setRaceStatus(
   raceId: string,
   status: RaceStatus
 ): Promise<void> {
   const db = getDb();
-  await db.update(races).set({ status }).where(eq(races.id, raceId));
+  if (status === "cancelled") {
+    await db.transaction(async (tx) => {
+      await tx
+        .update(races)
+        .set({ status, publishedAt: null, publishedResultCount: null })
+        .where(eq(races.id, raceId));
+      await tx
+        .delete(publishedIndividualResults)
+        .where(eq(publishedIndividualResults.raceId, raceId));
+      await tx.delete(publishedTeamResults).where(eq(publishedTeamResults.raceId, raceId));
+    });
+    return;
+  }
 
+  await db.update(races).set({ status }).where(eq(races.id, raceId));
   if (status === "closed") {
     await publishRace(raceId);
   }

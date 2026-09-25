@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { races, schools, submissionTokens } from "@/db/schema";
+import { isUuid } from "./ids";
 
 const TOKEN_VALIDITY_DAYS = 7;
 
@@ -97,6 +98,7 @@ export type TokenContext = {
 /** Valid while the race is 'open' AND the token hasn't expired; becomes read-only
  * once the race is closed (or the token itself has expired) regardless of status. */
 export async function resolveToken(token: string): Promise<TokenContext | null> {
+  if (!isUuid(token)) return null;
   const db = getDb();
   const [row] = await db
     .select({

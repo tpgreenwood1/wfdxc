@@ -4,9 +4,10 @@ import { getDb } from "@/db/client";
 import { events, races } from "@/db/schema";
 import { loadSchoolForPage } from "@/lib/schoolAccess";
 import { formatEventDate, pickCurrentEvent, todayInLeague } from "@/lib/events";
-import { YEAR_GROUP_ORDER, raceLabel } from "@/lib/races";
+import { YEAR_GROUP_ORDER, raceLabel, sortRaces } from "@/lib/races";
 import { getEntryCountsForSchool } from "@/lib/results";
 import { getConfirmedStatesForEvent, type ConfirmedState } from "@/lib/raceSchoolStatus";
+import ConfirmSubmitButton from "@/app/components/ConfirmSubmitButton";
 import CodeGate from "./CodeGate";
 import { confirmEventDoneAction } from "./actions";
 
@@ -51,6 +52,17 @@ export default async function SchoolRacesPage({
   const confirmedFor = (raceId: string) => confirmedAll.get(`${raceId}:${school.id}`);
   const openRaces = eventRaces.filter((r) => r.status === "open");
   const allConfirmed = openRaces.length > 0 && openRaces.every((r) => confirmedFor(r.id));
+  // Open races this school has neither entered nor confirmed — "We're done" marks these
+  // as "no runners", so the teacher is asked to check the list first.
+  const willMarkNoRunners = sortRaces(
+    openRaces.filter((r) => !entryCounts.get(r.id) && !confirmedFor(r.id))
+  ).map(raceLabel);
+  const doneConfirmMessage =
+    willMarkNoRunners.length === 0
+      ? "Tell the scorer you've entered all your runners for this event?"
+      : `These races have nothing entered and will be marked "no runners":\n\n• ${willMarkNoRunners.join(
+          "\n• "
+        )}\n\nIf any of your runners ran in these, tap Cancel and enter them first.`;
 
   const otherEvents = allEvents
     .filter((e) => e.seasonId === event.seasonId && e.id !== event.id)
@@ -119,12 +131,12 @@ export default async function SchoolRacesPage({
                 Entered all your runners? Let the scorer know — any race you haven&apos;t entered
                 will be marked as &ldquo;no runners&rdquo;.
               </p>
-              <button
-                type="submit"
+              <ConfirmSubmitButton
+                confirmMessage={doneConfirmMessage}
                 className="min-h-[48px] w-full rounded-lg bg-green-700 px-4 font-semibold text-white"
               >
                 We&apos;re done for {isToday ? "today" : "this event"}
-              </button>
+              </ConfirmSubmitButton>
             </form>
           )}
         </section>

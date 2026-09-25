@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { races, raceSchoolStatus, results, runners, schools } from "@/db/schema";
 import { quickAddRunner } from "./runners";
@@ -147,6 +147,26 @@ export async function saveSchoolResult(input: {
     if (!runner) throw new Error("That runner no longer exists — refresh the page.");
     runnerId = row.runnerId;
     runnerName = runner.name;
+
+    // The (race, runner) upsert below would silently move another school's result
+    // (and its place) over to this school — e.g. a teacher picking the wrong child
+    // via "Search other schools". Only the scorer can reassign a result.
+    const [taken] = await db
+      .select({ schoolName: schools.name })
+      .from(results)
+      .innerJoin(schools, eq(results.schoolId, schools.id))
+      .where(
+        and(
+          eq(results.raceId, input.raceId),
+          eq(results.runnerId, runnerId),
+          ne(results.schoolId, input.schoolId)
+        )
+      );
+    if (taken) {
+      throw new Error(
+        `${runner.name} has already been entered in this race by ${taken.schoolName}. Check you've picked the right child, or ask the scorer to move them.`
+      );
+    }
   } else {
     if (!row.newRunnerName?.trim()) throw new Error("Pick a runner first.");
     const created = await quickAddRunner(input.schoolId, row.newRunnerName);

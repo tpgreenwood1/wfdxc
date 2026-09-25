@@ -6,6 +6,7 @@ import { getRunnerDetail, getRunnerHistory } from "@/lib/runners";
 import { raceLabel } from "@/lib/races";
 import { ordinal } from "@/lib/raceIssues";
 import { formatEventDate } from "@/lib/events";
+import { isUuid } from "@/lib/ids";
 import StatusBadge from "@/app/components/StatusBadge";
 import ConfirmSubmitButton from "@/app/components/ConfirmSubmitButton";
 import { MergeWithPicker } from "../MergeControls";
@@ -20,6 +21,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function AdminRunnerPage({ params }: { params: { runnerId: string } }) {
+  if (!isUuid(params.runnerId)) notFound();
   const db = getDb();
   const [runner, history, allSchools] = await Promise.all([
     getRunnerDetail(params.runnerId),

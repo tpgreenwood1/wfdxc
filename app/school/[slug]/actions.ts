@@ -6,7 +6,12 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { races, runners } from "@/db/schema";
 import { getSchoolBySlug } from "@/lib/schools";
-import { grantSchoolAccess, isCorrectCode, requireSchoolAccess } from "@/lib/schoolAccess";
+import {
+  grantSchoolAccess,
+  hasSchoolAccess,
+  isCorrectCode,
+  requireSchoolAccess,
+} from "@/lib/schoolAccess";
 import {
   deleteResultForSchool,
   saveSchoolResult,
@@ -42,6 +47,24 @@ async function assertRaceOpen(raceId: string) {
   if (race.status !== "open") {
     throw new Error("This race is closed — contact the scorer for changes.");
   }
+}
+
+async function isRaceOpen(raceId: string): Promise<boolean> {
+  const db = getDb();
+  const [race] = await db
+    .select({ status: races.status })
+    .from(races)
+    .where(eq(races.id, raceId));
+  return race?.status === "open";
+}
+
+/** For the plain <form action> buttons ("No runners", "Race done", "We're done"): a
+ * throw there would replace the page with an error screen, so a lapsed code sends the
+ * teacher to the code gate instead. */
+async function schoolForFormAction(slug: string) {
+  const school = await getSchoolBySlug(slug);
+  if (!school || !hasSchoolAccess(school)) redirect(`/school/${slug}`);
+  return school;
 }
 
 /** A teacher may only act on runners on their own roster — a cross-school match
@@ -142,41 +165,54 @@ export async function searchOtherSchoolsAction(
 export async function addRunnersAction(
   slug: string,
   names: string[]
-): Promise<{ id: string; name: string }[]> {
-  const school = await requireSchoolAccess(slug);
-  const cleaned = names.map((n) => n.trim()).filter(Boolean);
-  if (cleaned.length === 0) throw new Error("Name can't be empty");
-  const created = [];
-  for (const name of cleaned) {
-    const runner = await quickAddRunner(school.id, name);
-    created.push({ id: runner.id, name: runner.name });
-  }
-  revalidateSchool(slug);
-  return created;
+): Promise<ActionResult<{ created: { id: string; name: string }[] }>> {
+  return toActionResult(async () => {
+    const school = await requireSchoolAccess(slug);
+    const cleaned = names.map((n) => n.trim()).filter(Boolean);
+    if (cleaned.length === 0) throw new Error("Name can't be empty");
+    const created = [];
+    for (const name of cleaned) {
+      const runner = await quickAddRunner(school.id, name);
+      created.push({ id: runner.id, name: runner.name });
+    }
+    revalidateSchool(slug);
+    return { created };
+  });
 }
 
 /** Hides a pupil who's left from entry forms and search; never deletes them or their
  * past results. */
-export async function retireRunnerAction(slug: string, runnerId: string): Promise<void> {
-  const school = await requireSchoolAccess(slug);
-  await assertOwnRunner(school.id, runnerId);
-  await retireRunner(runnerId);
-  revalidateSchool(slug);
+export async function retireRunnerAction(slug: string, runnerId: string): Promise<ActionResult> {
+  return toActionResult(async () => {
+    const school = await requireSchoolAccess(slug);
+    await assertOwnRunner(school.id, runnerId);
+    await retireRunner(runnerId);
+    revalidateSchool(slug);
+    return {};
+  });
 }
 
-export async function reactivateRunnerAction(slug: string, runnerId: string): Promise<void> {
-  const school = await requireSchoolAccess(slug);
-  await assertOwnRunner(school.id, runnerId);
-  await reactivateRunner(runnerId);
-  revalidateSchool(slug);
+export async function reactivateRunnerAction(
+  slug: string,
+  runnerId: string
+): Promise<ActionResult> {
+  return toActionResult(async () => {
+    const school = await requireSchoolAccess(slug);
+    await assertOwnRunner(school.id, runnerId);
+    await reactivateRunner(runnerId);
+    revalidateSchool(slug);
+    return {};
+  });
 }
 
 /** Teacher says their school had nobody in this race (or undoes that), so the scorer
  * stops chasing them for it. Bound form action: (slug, raceId, on). */
 export async function setNoRunnersAction(slug: string, raceId: string, on: boolean): Promise<void> {
-  const school = await requireSchoolAccess(slug);
-  await assertRaceOpen(raceId);
-  await setConfirmedState(raceId, school.id, on ? "no_runners" : null, "teacher");
+  const school = await schoolForFormAction(slug);
+  // Finalised since the page loaded: just refresh, which shows the "closed" notice.
+  if (await isRaceOpen(raceId)) {
+    await setConfirmedState(raceId, school.id, on ? "no_runners" : null, "teacher");
+  }
   revalidateSchool(slug);
   revalidatePath(`/admin/races/${raceId}`);
 }
@@ -185,9 +221,10 @@ export async function setNoRunnersAction(slug: string, raceId: string, on: boole
  * can finalise and announce it without waiting for the whole event. Bound form action:
  * (slug, raceId, on). */
 export async function setRaceDoneAction(slug: string, raceId: string, on: boolean): Promise<void> {
-  const school = await requireSchoolAccess(slug);
-  await assertRaceOpen(raceId);
-  await setConfirmedState(raceId, school.id, on ? "done" : null, "teacher");
+  const school = await schoolForFormAction(slug);
+  if (await isRaceOpen(raceId)) {
+    await setConfirmedState(raceId, school.id, on ? "done" : null, "teacher");
+  }
   revalidateSchool(slug);
   revalidatePath("/admin", "layout");
 }
@@ -195,7 +232,7 @@ export async function setRaceDoneAction(slug: string, raceId: string, on: boolea
 /** "We're done": every open race in the event is confirmed for this school — races
  * with runners entered as done, the rest as no runners. */
 export async function confirmEventDoneAction(slug: string, eventId: string): Promise<void> {
-  const school = await requireSchoolAccess(slug);
+  const school = await schoolForFormAction(slug);
   await confirmSchoolForEvent(eventId, school.id, "teacher");
   revalidateSchool(slug);
   revalidatePath(`/admin/events/${eventId}`);

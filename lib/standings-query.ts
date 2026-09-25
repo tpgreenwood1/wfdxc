@@ -1,6 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { publishedIndividualResults, seasons } from "@/db/schema";
+import { publishedIndividualResults, races, seasons } from "@/db/schema";
 import { computeSeasonStandings, type SeasonStandings } from "./standings";
 import type { Gender, YearGroup } from "./types";
 
@@ -28,11 +28,15 @@ export async function getSeasonStandings(
       position: publishedIndividualResults.position,
     })
     .from(publishedIndividualResults)
+    // Cancelling a race deletes its snapshot; this also covers any snapshot left from
+    // before that was the case.
+    .innerJoin(races, eq(publishedIndividualResults.raceId, races.id))
     .where(
       and(
         eq(publishedIndividualResults.seasonId, seasonId),
         eq(publishedIndividualResults.yearGroup, yearGroup),
-        eq(publishedIndividualResults.gender, gender)
+        eq(publishedIndividualResults.gender, gender),
+        ne(races.status, "cancelled")
       )
     );
 

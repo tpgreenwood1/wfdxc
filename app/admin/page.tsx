@@ -124,13 +124,23 @@ export default async function AdminTodayPage() {
                   <span className="block text-xs text-gray-600">
                     {s.progress === "not_started"
                       ? "Nothing entered yet"
-                      : `${s.outstanding.length} race(s) with nothing yet`}
+                      : [
+                          s.outstanding.length > 0 && `${s.outstanding.length} race(s) with nothing yet`,
+                          s.notMarkedDone.length > 0 && `${s.notMarkedDone.length} not marked done`,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
                   </span>
                 </span>
                 <ShareLinkButton
                   path={teacherLinkPath(s)}
                   title={`${s.name} results`}
-                  message={chaseMessage(s, event.name, s.outstanding.map((o) => o.label))}
+                  message={chaseMessage(
+                    s,
+                    event.name,
+                    s.outstanding.map((o) => o.label),
+                    s.notMarkedDone.map((o) => o.label)
+                  )}
                   label="Share reminder"
                 />
               </li>

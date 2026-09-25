@@ -15,6 +15,7 @@ import {
   type SchoolRaceState,
 } from "@/lib/raceSchoolStatus";
 import { formatEventDate } from "@/lib/events";
+import { isUuid } from "@/lib/ids";
 import RaceResultsTable from "./RaceResultsTable";
 import CopyLinkButton from "@/app/components/CopyLinkButton";
 import StatusBadge from "@/app/components/StatusBadge";
@@ -43,6 +44,7 @@ const STATE_STYLE: Record<SchoolRaceState, string> = {
 };
 
 export default async function RacePage({ params }: { params: { raceId: string } }) {
+  if (!isUuid(params.raceId)) notFound();
   const db = getDb();
   const [race] = await db.select().from(races).where(eq(races.id, params.raceId));
   if (!race) notFound();

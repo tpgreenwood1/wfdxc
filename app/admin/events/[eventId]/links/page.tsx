@@ -6,6 +6,7 @@ import { getOrCreateHubTokensForEvent } from "@/lib/hubTokens";
 import { getSubmissionStatusMatrix } from "@/lib/results";
 import CopyLinkButton from "@/app/components/CopyLinkButton";
 import { sortRaces } from "@/lib/races";
+import { isUuid } from "@/lib/ids";
 import { regenerateHubTokenAction, regenerateSubmissionTokenAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,7 @@ export default async function EventLinksPage({
 }: {
   params: { eventId: string };
 }) {
+  if (!isUuid(params.eventId)) notFound();
   const db = getDb();
   const [event] = await db.select().from(events).where(eq(events.id, params.eventId));
   if (!event) notFound();

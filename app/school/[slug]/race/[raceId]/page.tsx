@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { events, races } from "@/db/schema";
 import { loadSchoolForPage } from "@/lib/schoolAccess";
+import { isUuid } from "@/lib/ids";
 import { raceLabel, sortRaces } from "@/lib/races";
 import { getResultsForSchoolInRace, getSchoolRoster } from "@/lib/results";
 import SubmitForm from "@/app/components/SubmitForm";
@@ -27,6 +28,7 @@ export default async function SchoolRaceEntryPage({
 }) {
   const { school, hasAccess } = await loadSchoolForPage(params.slug);
   if (!hasAccess) return <CodeGate slug={school.slug} />;
+  if (!isUuid(params.raceId)) notFound();
 
   const db = getDb();
   const [row] = await db

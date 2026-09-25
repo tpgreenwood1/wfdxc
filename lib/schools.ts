@@ -109,11 +109,16 @@ export function teacherLinkMessage(school: { name: string; accessCode: string })
 export function chaseMessage(
   school: { name: string; accessCode: string },
   eventName: string,
-  outstanding: string[]
+  outstanding: string[],
+  notMarkedDone: string[] = []
 ): string {
   const races =
     outstanding.length > 0 && outstanding.length <= 6
       ? ` We haven't got anything yet for: ${outstanding.join(", ")}.`
       : "";
-  return `Hi ${school.name} — a reminder to enter your runners' places for ${eventName}.${races}\nTap "Race done" on each race once it's entered (or "No runners" if nobody ran), or "We're done" at the end.\n{url}\n(Code if asked: ${school.accessCode})`;
+  const unconfirmed =
+    notMarkedDone.length > 0 && notMarkedDone.length <= 6
+      ? ` Not marked done yet: ${notMarkedDone.join(", ")}.`
+      : "";
+  return `Hi ${school.name} — a reminder to enter your runners' places for ${eventName}.${races}${unconfirmed}\nTap "Race done" on each race once it's entered (or "No runners" if nobody ran), or "We're done" at the end.\n{url}\n(Code if asked: ${school.accessCode})`;
 }

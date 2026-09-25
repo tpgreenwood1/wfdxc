@@ -73,7 +73,9 @@ export default function RosterManager({
     setMessage(null);
     startTransition(async () => {
       try {
-        const created = await addRunnersAction(slug, names);
+        const res = await addRunnersAction(slug, names);
+        if (res.error !== undefined) throw new Error(res.error);
+        const { created } = res;
         setRoster((prev) =>
           [
             ...prev,
@@ -127,9 +129,15 @@ export default function RosterManager({
     setRoster((prev) => prev.map((r) => (r.id === runner.id ? { ...r, isRetired } : r)));
     startTransition(async () => {
       try {
-        if (isRetired) await retireRunnerAction(slug, runner.id);
-        else await reactivateRunnerAction(slug, runner.id);
+        const res = isRetired
+          ? await retireRunnerAction(slug, runner.id)
+          : await reactivateRunnerAction(slug, runner.id);
+        if (res.error !== undefined) throw new Error(res.error);
       } catch (err) {
+        // Put the row back where it was so the list matches what's saved.
+        setRoster((prev) =>
+          prev.map((r) => (r.id === runner.id ? { ...r, isRetired: !isRetired } : r))
+        );
         fail(err, "Couldn't update runner.");
       }
     });

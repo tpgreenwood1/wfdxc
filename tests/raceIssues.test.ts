@@ -80,9 +80,12 @@ describe("school / race readiness", () => {
     expect(schoolRaceState(3, "done")).toBe("done");
   });
 
-  it("is ready only with results, no open issues and no silent schools", () => {
-    const base = { openIssues: 0, totalEntries: 10, schoolStates: ["done", "no_runners", "entering"] as const };
+  it("is ready only with results, no open issues and every school confirmed", () => {
+    const base = { openIssues: 0, totalEntries: 10, schoolStates: ["done", "no_runners", "done"] as const };
     expect(raceReadiness({ ...base, schoolStates: [...base.schoolStates] }).ready).toBe(true);
+    expect(
+      raceReadiness({ ...base, schoolStates: ["done", "no_runners", "entering"] })
+    ).toMatchObject({ ready: false, entering: 1 });
     expect(raceReadiness({ ...base, schoolStates: [...base.schoolStates], openIssues: 1 }).ready).toBe(false);
     expect(raceReadiness({ ...base, schoolStates: [...base.schoolStates], totalEntries: 0 }).ready).toBe(false);
     const r = raceReadiness({ ...base, schoolStates: ["done", "not_started", "entering"] });

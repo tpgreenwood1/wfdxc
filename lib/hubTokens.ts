@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { events, eventSchoolTokens, schools } from "@/db/schema";
+import { isUuid } from "./ids";
 
 /**
  * Get-or-create is the only way these rows come into being — there's no bulk creation
@@ -93,6 +94,7 @@ export type HubTokenContext = {
 export async function resolveHubToken(
   token: string
 ): Promise<HubTokenContext | null> {
+  if (!isUuid(token)) return null;
   const db = getDb();
   const [row] = await db
     .select({

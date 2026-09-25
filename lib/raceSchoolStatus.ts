@@ -25,8 +25,10 @@ export type RaceReadiness = {
 };
 
 /** A race is ready to finalise once it has results, no open issues, and every school
- * has either entered something or confirmed it had no runners. Schools still
- * 'entering' don't block — they've clearly turned up — but are shown as a warning. */
+ * has confirmed it — 'done' or 'no runners'. A school still 'entering' blocks too:
+ * mid-event nearly every school is part-way through, and bulk-finalising then would
+ * close races under teachers who are still typing. The admin can still finalise a
+ * single race anyway (with a warning) or mark the school done on its behalf. */
 export function raceReadiness(input: {
   openIssues: number;
   totalEntries: number;
@@ -35,7 +37,8 @@ export function raceReadiness(input: {
   const notStarted = input.schoolStates.filter((s) => s === "not_started").length;
   const entering = input.schoolStates.filter((s) => s === "entering").length;
   return {
-    ready: input.totalEntries > 0 && input.openIssues === 0 && notStarted === 0,
+    ready:
+      input.totalEntries > 0 && input.openIssues === 0 && notStarted === 0 && entering === 0,
     notStarted,
     entering,
     totalEntries: input.totalEntries,

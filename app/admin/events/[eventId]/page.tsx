@@ -272,13 +272,26 @@ function SchoolsChaseList({
                   </span>
                 </>
               )}
+              {school.notMarkedDone.length > 0 && (
+                <>
+                  {" "}· Not marked done:{" "}
+                  <span className="text-gray-800">
+                    {school.notMarkedDone.map((o) => o.label).join(", ")}
+                  </span>
+                </>
+              )}
             </p>
             {school.progress !== "done" && (
               <div className="flex flex-wrap items-center gap-2">
                 <ShareLinkButton
                   path={teacherLinkPath(school)}
                   title={`${school.name} results`}
-                  message={chaseMessage(school, eventName, school.outstanding.map((o) => o.label))}
+                  message={chaseMessage(
+                    school,
+                    eventName,
+                    school.outstanding.map((o) => o.label),
+                    school.notMarkedDone.map((o) => o.label)
+                  )}
                   label="Share reminder"
                 />
                 <CopyLinkButton path={teacherLinkPath(school)} label="Copy link" />

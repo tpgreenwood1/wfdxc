@@ -1,6 +1,6 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { events, publishedIndividualResults, publishedTeamResults } from "@/db/schema";
+import { events, publishedIndividualResults, publishedTeamResults, races } from "@/db/schema";
 
 /** Reads only the permanent published snapshot — never live results/runners/schools —
  * so it's unaffected by later transfers, merges, or pruning. */
@@ -58,10 +58,12 @@ export async function getSchoolSeasonResults(
       })
       .from(publishedIndividualResults)
       .innerJoin(events, eq(publishedIndividualResults.eventId, events.id))
+      .innerJoin(races, eq(publishedIndividualResults.raceId, races.id))
       .where(
         and(
           eq(publishedIndividualResults.seasonId, seasonId),
-          eq(publishedIndividualResults.schoolId, schoolId)
+          eq(publishedIndividualResults.schoolId, schoolId),
+          ne(races.status, "cancelled")
         )
       )
       .orderBy(publishedIndividualResults.position),
