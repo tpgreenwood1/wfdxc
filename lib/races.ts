@@ -23,7 +23,7 @@ export async function setRaceStatus(
 
 export async function updateResultInline(
   resultId: string,
-  updates: { position?: number; runnerId?: string }
+  updates: { position?: number; runnerId?: string; schoolId?: string }
 ): Promise<void> {
   const db = getDb();
   await db

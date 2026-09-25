@@ -54,6 +54,12 @@ export default async function EventLinksPage({
         {event.name} — {event.date}
       </h1>
       <p className="text-gray-600">Entry links by school</p>
+      <p className="rounded bg-blue-50 p-2 text-sm text-blue-900">
+        Send each school its <strong>hub link</strong> — it lists every race for that
+        school and never expires. The per-race links are only shown for reference or
+        to regenerate a single race's link; you shouldn't normally need to send them
+        directly.
+      </p>
 
       <div className="overflow-x-auto">
         <table className="w-full text-xs">

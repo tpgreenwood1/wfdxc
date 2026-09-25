@@ -55,7 +55,17 @@ export default async function StandingsPage({
         </button>
       </form>
 
-      {standings && (
+      {standings &&
+        standings.qualified.length === 0 &&
+        standings.notYetQualified.length === 0 && (
+          <p className="rounded bg-gray-100 p-3 text-sm text-gray-600">
+            No results yet for {yearGroup.toUpperCase()} {gender} — try a different
+            year group or gender above, or check back after the next event is
+            published.
+          </p>
+        )}
+
+      {standings && (standings.qualified.length > 0 || standings.notYetQualified.length > 0) && (
         <>
           <section>
             <h2 className="font-semibold">Qualified</h2>

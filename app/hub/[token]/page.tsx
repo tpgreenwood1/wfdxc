@@ -5,7 +5,9 @@ import { getDb } from "@/db/client";
 import { races } from "@/db/schema";
 import { resolveHubToken } from "@/lib/hubTokens";
 import { getOrCreateSubmissionToken } from "@/lib/tokens";
-import { getSubmittedRaceIdsForSchool } from "@/lib/results";
+import { getSchoolRoster, getSubmittedRaceIdsForSchool } from "@/lib/results";
+import StatusBadge from "@/app/components/StatusBadge";
+import RosterManager from "./RosterManager";
 
 export const dynamic = "force-dynamic";
 
@@ -32,10 +34,10 @@ export default async function HubPage({
     return a.gender.localeCompare(b.gender);
   });
 
-  const submittedRaceIds = await getSubmittedRaceIdsForSchool(
-    ctx.eventId,
-    ctx.schoolId
-  );
+  const [submittedRaceIds, roster] = await Promise.all([
+    getSubmittedRaceIdsForSchool(ctx.eventId, ctx.schoolId),
+    getSchoolRoster(ctx.schoolId, { includeRetired: true }),
+  ]);
 
   const eventDate = new Date(ctx.eventDate);
   const openRaceTokens = new Map(
@@ -75,9 +77,11 @@ export default async function HubPage({
                 <td className="py-1">
                   {race.yearGroup.toUpperCase()} · {race.gender}
                 </td>
-                <td className="py-1">{race.status}</td>
                 <td className="py-1">
-                  {submitted ? "Submitted" : "Not started"}
+                  <StatusBadge status={race.status} />
+                </td>
+                <td className="py-1">
+                  {race.status === "cancelled" ? "—" : submitted ? "Submitted" : "Not started"}
                 </td>
                 <td className="py-1">
                   {race.status === "open" && (
@@ -96,12 +100,20 @@ export default async function HubPage({
                       View results
                     </Link>
                   )}
+                  {race.status === "cancelled" && (
+                    <span className="text-gray-500">Race cancelled</span>
+                  )}
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+
+      <section>
+        <h2 className="text-lg font-semibold">Your runners</h2>
+        <RosterManager token={params.token} initialRoster={roster} />
+      </section>
     </main>
   );
 }

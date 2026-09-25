@@ -23,12 +23,22 @@ export default function CopyLinkButton({
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      className="rounded bg-gray-200 px-2 py-0.5 text-xs"
-    >
-      {copied ? "Copied!" : label}
-    </button>
+    <span className="inline-flex items-center gap-1">
+      <a
+        href={path}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-xs text-blue-600 underline"
+      >
+        Open
+      </a>
+      <button
+        type="button"
+        onClick={handleClick}
+        className="rounded bg-gray-200 px-2 py-0.5 text-xs"
+      >
+        {copied ? "Copied!" : label}
+      </button>
+    </span>
   );
 }

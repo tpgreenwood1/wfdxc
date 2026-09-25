@@ -1,9 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { eq } from "drizzle-orm";
+import { getDb } from "@/db/client";
+import { runners } from "@/db/schema";
 import { resolveToken } from "@/lib/tokens";
 import { deleteResult, upsertResult } from "@/lib/results";
-import { quickAddRunner } from "@/lib/runners";
+import { quickAddRunner, renameRunner } from "@/lib/runners";
 
 export type SubmitRow = {
   runnerId: string | null;
@@ -49,5 +52,27 @@ export async function submitResults(
 export async function removeResult(token: string, resultId: string): Promise<void> {
   await assertEditable(token);
   await deleteResult(resultId);
+  revalidatePath(`/submit/${token}`);
+}
+
+/** Lets a teacher fix a typo they spot on their own roster (e.g. a misspelled name)
+ * without going through the admin. Scoped to their own school's runners only — a
+ * cross-school match surfaced by the league-wide search isn't theirs to rename. */
+export async function renameRunnerAction(
+  token: string,
+  runnerId: string,
+  newName: string
+): Promise<void> {
+  const ctx = await assertEditable(token);
+  const db = getDb();
+  const [runner] = await db
+    .select({ schoolId: runners.schoolId })
+    .from(runners)
+    .where(eq(runners.id, runnerId));
+  if (!runner || runner.schoolId !== ctx.schoolId) {
+    throw new Error("You can only rename runners on your own roster");
+  }
+  if (!newName.trim()) throw new Error("Name can't be empty");
+  await renameRunner(runnerId, newName);
   revalidatePath(`/submit/${token}`);
 }

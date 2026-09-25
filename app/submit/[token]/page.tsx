@@ -1,5 +1,10 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { eq } from "drizzle-orm";
+import { getDb } from "@/db/client";
+import { races } from "@/db/schema";
 import { resolveToken } from "@/lib/tokens";
+import { getOrCreateHubToken } from "@/lib/hubTokens";
 import { getResultsForSchoolInRace, getSchoolRoster } from "@/lib/results";
 import SubmitForm from "./SubmitForm";
 
@@ -13,13 +18,21 @@ export default async function SubmitPage({
   const ctx = await resolveToken(params.token);
   if (!ctx) notFound();
 
-  const [existingResults, roster] = await Promise.all([
+  const db = getDb();
+  const [existingResults, roster, [race]] = await Promise.all([
     getResultsForSchoolInRace(ctx.raceId, ctx.schoolId),
     getSchoolRoster(ctx.schoolId),
+    db.select({ eventId: races.eventId }).from(races).where(eq(races.id, ctx.raceId)),
   ]);
+  const hubToken = race ? await getOrCreateHubToken(race.eventId, ctx.schoolId) : null;
 
   return (
     <main className="mx-auto max-w-md p-4">
+      {hubToken && (
+        <Link className="text-sm text-blue-600 underline" href={`/hub/${hubToken}`}>
+          &larr; Back to all races
+        </Link>
+      )}
       <h1 className="text-xl font-bold">{ctx.schoolName}</h1>
       <p className="text-gray-600">
         {ctx.yearGroup.toUpperCase()} · {ctx.gender}

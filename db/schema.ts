@@ -78,6 +78,14 @@ export const runners = pgTable("runners", {
     .notNull()
     .references(() => schools.id, { onDelete: "restrict" }),
   name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  // Soft-delete for a runner who's aged out/graduated — never hard-deleted, since
+  // results.runner_id cascades on delete and would destroy their historical results.
+  // Null = active. Set = hidden from roster pickers and search by default, but the
+  // row (and all their past results) stays intact and can be reactivated.
+  retiredAt: timestamp("retired_at", { withTimezone: true }),
 });
 
 export const runnerAliases = pgTable("runner_aliases", {
@@ -152,6 +160,31 @@ export const eventSchoolTokens = pgTable(
   },
   (table) => ({
     eventSchoolUnique: unique().on(table.eventId, table.schoolId),
+  })
+);
+
+// Records a merge-candidate pair the admin has manually reviewed and confirmed are
+// two different kids, not a name variant of the same kid — so findMergeCandidates
+// stops resurfacing it on every visit to the roster tool. Rows are always stored with
+// runnerAId as the lexicographically-smaller id, matching findMergeCandidates' own
+// r1.id < r2.id ordering, so a pair only ever needs one row regardless of which side
+// the admin dismissed from.
+export const dismissedMergeCandidates = pgTable(
+  "dismissed_merge_candidates",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    runnerAId: uuid("runner_a_id")
+      .notNull()
+      .references(() => runners.id, { onDelete: "cascade" }),
+    runnerBId: uuid("runner_b_id")
+      .notNull()
+      .references(() => runners.id, { onDelete: "cascade" }),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    pairUnique: unique().on(table.runnerAId, table.runnerBId),
   })
 );
 

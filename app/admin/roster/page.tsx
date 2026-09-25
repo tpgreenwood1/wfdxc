@@ -1,8 +1,17 @@
-import { eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { runners, schools } from "@/db/schema";
+import { schools } from "@/db/schema";
 import { findMergeCandidates } from "@/lib/runners";
-import { mergeAction, renameAction } from "./actions";
+import { getSchoolRoster } from "@/lib/results";
+import ConfirmSubmitButton from "@/app/components/ConfirmSubmitButton";
+import {
+  addRunnerAction,
+  dismissMergeCandidateAction,
+  mergeAction,
+  moveSchoolAction,
+  reactivateAction,
+  renameAction,
+  retireAction,
+} from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +26,7 @@ export default async function RosterPage({
 
   const [schoolRunners, candidates] = schoolId
     ? await Promise.all([
-        db.select().from(runners).where(eq(runners.schoolId, schoolId)),
+        getSchoolRoster(schoolId, { includeRetired: true }),
         findMergeCandidates(schoolId),
       ])
     : [[], []];
@@ -61,16 +70,30 @@ export default async function RosterPage({
                     <input type="hidden" name="schoolId" value={schoolId} />
                     <input type="hidden" name="canonicalId" value={c.runnerAId} />
                     <input type="hidden" name="duplicateId" value={c.runnerBId} />
-                    <button className="rounded bg-gray-800 px-2 py-1 text-white" type="submit">
+                    <ConfirmSubmitButton
+                      confirmMessage={`Merge "${c.runnerBName}" into "${c.runnerAName}"? This moves all of "${c.runnerBName}"'s results onto "${c.runnerAName}" and deletes the "${c.runnerBName}" record. This can't be undone.`}
+                      className="rounded bg-gray-800 px-2 py-1 text-white"
+                    >
                       Keep "{c.runnerAName}"
-                    </button>
+                    </ConfirmSubmitButton>
                   </form>
                   <form action={mergeAction}>
                     <input type="hidden" name="schoolId" value={schoolId} />
                     <input type="hidden" name="canonicalId" value={c.runnerBId} />
                     <input type="hidden" name="duplicateId" value={c.runnerAId} />
-                    <button className="rounded bg-gray-800 px-2 py-1 text-white" type="submit">
+                    <ConfirmSubmitButton
+                      confirmMessage={`Merge "${c.runnerAName}" into "${c.runnerBName}"? This moves all of "${c.runnerAName}"'s results onto "${c.runnerBName}" and deletes the "${c.runnerAName}" record. This can't be undone.`}
+                      className="rounded bg-gray-800 px-2 py-1 text-white"
+                    >
                       Keep "{c.runnerBName}"
+                    </ConfirmSubmitButton>
+                  </form>
+                  <form action={dismissMergeCandidateAction}>
+                    <input type="hidden" name="schoolId" value={schoolId} />
+                    <input type="hidden" name="runnerAId" value={c.runnerAId} />
+                    <input type="hidden" name="runnerBId" value={c.runnerBId} />
+                    <button className="rounded bg-gray-200 px-2 py-1" type="submit">
+                      Not a duplicate
                     </button>
                   </form>
                 </li>
@@ -79,10 +102,46 @@ export default async function RosterPage({
           </section>
 
           <section>
+            <h2 className="font-semibold">Add new runner</h2>
+            <p className="text-xs text-gray-500">
+              Adds to the currently selected school ({allSchools.find((s) => s.id === schoolId)?.name}).
+            </p>
+            <form action={addRunnerAction} className="mt-1 flex items-center gap-2">
+              <input type="hidden" name="schoolId" value={schoolId} />
+              <input
+                name="name"
+                placeholder="Runner name"
+                required
+                className="rounded border px-2 py-1"
+              />
+              <button className="rounded bg-blue-600 px-3 py-1 text-white" type="submit">
+                Add
+              </button>
+            </form>
+          </section>
+
+          <section>
             <h2 className="font-semibold">All runners</h2>
+            <p className="text-xs text-gray-500">
+              Retiring a runner (e.g. they've graduated) hides them from future entry
+              forms and search, without touching any of their past results.
+            </p>
             <ul className="mt-1 space-y-1">
               {schoolRunners.map((r) => (
-                <li key={r.id} className="flex items-center gap-2 text-sm">
+                <li
+                  key={r.id}
+                  className={`flex flex-wrap items-center gap-2 text-sm ${
+                    r.isRetired ? "opacity-50" : ""
+                  }`}
+                >
+                  {r.duplicateCount > 1 && (
+                    <span className="text-xs text-gray-500">({r.duplicateIndex})</span>
+                  )}
+                  {r.isRetired && (
+                    <span className="rounded bg-gray-200 px-1 text-xs text-gray-600">
+                      retired
+                    </span>
+                  )}
                   <form action={renameAction} className="flex items-center gap-2">
                     <input type="hidden" name="schoolId" value={schoolId} />
                     <input type="hidden" name="runnerId" value={r.id} />
@@ -95,6 +154,47 @@ export default async function RosterPage({
                       Rename
                     </button>
                   </form>
+                  <form action={moveSchoolAction} className="flex items-center gap-1">
+                    <input type="hidden" name="schoolId" value={schoolId} />
+                    <input type="hidden" name="runnerId" value={r.id} />
+                    <select
+                      name="newSchoolId"
+                      defaultValue={schoolId}
+                      className="rounded border px-1 py-0.5 text-xs"
+                    >
+                      {allSchools.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                    <ConfirmSubmitButton
+                      confirmMessage={`Move "${r.name}" to a different school? This only affects future rosters/entries — it won't change which school past results are credited to.`}
+                      className="rounded bg-gray-200 px-2 py-0.5 text-xs"
+                    >
+                      Move
+                    </ConfirmSubmitButton>
+                  </form>
+                  {r.isRetired ? (
+                    <form action={reactivateAction}>
+                      <input type="hidden" name="schoolId" value={schoolId} />
+                      <input type="hidden" name="runnerId" value={r.id} />
+                      <button className="rounded bg-gray-200 px-2 py-0.5 text-xs" type="submit">
+                        Reactivate
+                      </button>
+                    </form>
+                  ) : (
+                    <form action={retireAction}>
+                      <input type="hidden" name="schoolId" value={schoolId} />
+                      <input type="hidden" name="runnerId" value={r.id} />
+                      <ConfirmSubmitButton
+                        confirmMessage={`Retire "${r.name}"? They'll be hidden from future entry forms and search, but all their past results stay exactly as they are. You can reactivate them later if needed.`}
+                        className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-900"
+                      >
+                        Retire
+                      </ConfirmSubmitButton>
+                    </form>
+                  )}
                 </li>
               ))}
             </ul>

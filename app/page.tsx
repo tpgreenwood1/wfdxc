@@ -6,6 +6,11 @@ export default function HomePage() {
       <h1 className="text-2xl font-bold">Junior XC League</h1>
       <ul className="mt-4 space-y-2">
         <li>
+          <Link className="text-blue-600 underline" href="/results">
+            Race results
+          </Link>
+        </li>
+        <li>
           <Link className="text-blue-600 underline" href="/standings">
             Season standings
           </Link>

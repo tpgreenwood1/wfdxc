@@ -1,15 +1,37 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { races, results, runners, schools } from "@/db/schema";
 
-export type RosterRunner = { id: string; name: string };
+export type RosterRunner = {
+  id: string;
+  name: string;
+  duplicateIndex: number;
+  duplicateCount: number;
+  isRetired: boolean;
+};
 
-export async function getSchoolRoster(schoolId: string): Promise<RosterRunner[]> {
+/** Retired (graduated) runners are excluded by default — they're no longer eligible
+ * to race, so entry-time pickers (submit form, hub pre-add) shouldn't offer them. Pass
+ * `includeRetired: true` for the admin roster tool, which needs to see and reactivate
+ * them. */
+export async function getSchoolRoster(
+  schoolId: string,
+  opts: { includeRetired?: boolean } = {}
+): Promise<RosterRunner[]> {
+  const { includeRetired = false } = opts;
   const db = getDb();
-  return db
-    .select({ id: runners.id, name: runners.name })
-    .from(runners)
-    .where(eq(runners.schoolId, schoolId));
+  const result = await db.execute<RosterRunner>(sql`
+    select
+      r.id as id, r.name as name,
+      (row_number() over (partition by lower(r.name) order by r.created_at))::int as "duplicateIndex",
+      (count(*) over (partition by lower(r.name)))::int as "duplicateCount",
+      (r.retired_at is not null) as "isRetired"
+    from runners r
+    where r.school_id = ${schoolId}
+      and (${includeRetired} or r.retired_at is null)
+    order by r.name
+  `);
+  return result.rows;
 }
 
 export type SubmittedResult = {
@@ -43,9 +65,9 @@ export async function upsertResult(input: {
   schoolId: string;
   position: number;
   submittedBy: string;
-}): Promise<void> {
+}): Promise<{ id: string }> {
   const db = getDb();
-  await db
+  const [row] = await db
     .insert(results)
     .values(input)
     .onConflictDoUpdate({
@@ -56,7 +78,9 @@ export async function upsertResult(input: {
         submittedBy: input.submittedBy,
         updatedAt: new Date(),
       },
-    });
+    })
+    .returning({ id: results.id });
+  return row;
 }
 
 export async function deleteResult(resultId: string): Promise<void> {
