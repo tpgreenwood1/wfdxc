@@ -204,6 +204,7 @@ export default async function RacePage({ params }: { params: { raceId: string } 
                   readiness.ready ? "bg-green-700" : "bg-gray-800"
                 }`}
                 pendingLabel="Finalising…"
+                confirmLabel="Finalise"
               >
                 {readiness.ready ? "Finalise race ✓" : "Finalise race…"}
               </ConfirmSubmitButton>
