@@ -88,6 +88,8 @@ export type TokenContext = {
   raceId: string;
   schoolId: string;
   schoolName: string;
+  schoolSlug: string;
+  eventId: string;
   yearGroup: string;
   gender: string;
   raceStatus: "open" | "closed" | "cancelled";
@@ -106,6 +108,8 @@ export async function resolveToken(token: string): Promise<TokenContext | null> 
       raceId: submissionTokens.raceId,
       schoolId: submissionTokens.schoolId,
       schoolName: schools.name,
+      schoolSlug: schools.slug,
+      eventId: races.eventId,
       expiresAt: submissionTokens.expiresAt,
       yearGroup: races.yearGroup,
       gender: races.gender,
@@ -126,6 +130,8 @@ export async function resolveToken(token: string): Promise<TokenContext | null> 
     raceId: row.raceId,
     schoolId: row.schoolId,
     schoolName: row.schoolName,
+    schoolSlug: row.schoolSlug,
+    eventId: row.eventId,
     yearGroup: row.yearGroup,
     gender: row.gender,
     raceStatus: row.raceStatus,

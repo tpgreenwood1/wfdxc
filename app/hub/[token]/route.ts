@@ -1,14 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { resolveHubToken } from "@/lib/hubTokens";
-import { grantSchoolAccess } from "@/lib/schoolAccess";
 import { getSchoolById } from "@/lib/schools";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Per-event hub links predate the school home page. They still work: a valid hub
- * token proves which school the teacher is from, so it unlocks that school's home page
- * on this device and lands them on the event it was sent for.
+ * Per-event hub links predate the school home page. They still work as a bookmark —
+ * they land on the school's page for that event — but they no longer unlock it: these
+ * links never expire and get forwarded around, so they'd let anyone back in after the
+ * school's code is regenerated. A device that isn't already unlocked gets the code gate.
  */
 export async function GET(
   request: NextRequest,
@@ -23,9 +23,7 @@ export async function GET(
     );
   }
 
-  const response = NextResponse.redirect(
+  return NextResponse.redirect(
     new URL(`/school/${school.slug}?event=${ctx.eventId}`, request.url)
   );
-  grantSchoolAccess(school, response.cookies);
-  return response;
 }

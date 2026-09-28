@@ -53,9 +53,9 @@ export default async function EventLinksPage({
       <p className="rounded bg-blue-50 p-2 text-sm text-blue-900">
         Schools should use their <strong>teacher link</strong> (from the{" "}
         <a className="underline" href="/admin/schools">Schools</a> page) — one
-        link for the whole season. The per-event hub links below still work and open
-        the same school home page; the per-race links are only for chasing one school
-        on one race.
+        link for the whole season. The per-event hub links below still open the same
+        school home page, but a phone that hasn&apos;t been unlocked will be asked for the
+        school code; the per-race links are only for chasing one school on one race.
       </p>
 
       <div className="overflow-x-auto">

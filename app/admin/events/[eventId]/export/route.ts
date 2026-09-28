@@ -3,8 +3,17 @@ import { getEventExport, sharedLabel } from "@/lib/eventExport";
 
 export const dynamic = "force-dynamic";
 
+// Names come from teachers: a cell starting with = + - @ would run as a formula when
+// the export is opened in Excel, so it's prefixed with ' to keep it as text. Our own
+// tie labels ("=3") are left alone — Excel just shows them as the number.
+const FORMULA_START = /^[=+\-@\t\r]/;
+const TIE_LABEL = /^=\d+$/;
+
 function csvCell(value: string | number): string {
-  const s = String(value);
+  let s = String(value);
+  if (typeof value === "string" && FORMULA_START.test(s) && !TIE_LABEL.test(s)) {
+    s = `'${s}`;
+  }
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

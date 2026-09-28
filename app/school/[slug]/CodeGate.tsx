@@ -21,7 +21,11 @@ function OpenButton() {
  * school's code (once — it's remembered for a year). */
 export default function CodeGate({ slug }: { slug: string }) {
   const pathname = usePathname();
-  const cameFromBadLink = useSearchParams().get("codeError") === "1";
+  const searchParams = useSearchParams();
+  const cameFromBadLink = searchParams.get("codeError") === "1";
+  // Keep ?event= (e.g. from an old hub link) so they land on the right event once in.
+  const event = searchParams.get("event");
+  const returnTo = event ? `${pathname}?event=${encodeURIComponent(event)}` : pathname;
   const [state, formAction] = useFormState<UnlockState, FormData>(
     unlockSchoolAction.bind(null, slug),
     { error: cameFromBadLink ? "That link's code has changed — enter your current school code." : null }
@@ -32,7 +36,7 @@ export default function CodeGate({ slug }: { slug: string }) {
       <label htmlFor="school-code" className="block font-semibold">
         Enter your school code
       </label>
-      <input type="hidden" name="returnTo" value={pathname} />
+      <input type="hidden" name="returnTo" value={returnTo} />
       <input
         id="school-code"
         name="code"

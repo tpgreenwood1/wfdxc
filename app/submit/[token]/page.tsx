@@ -1,10 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
-import { getDb } from "@/db/client";
-import { races } from "@/db/schema";
 import { resolveToken } from "@/lib/tokens";
-import { getOrCreateHubToken } from "@/lib/hubTokens";
 import { getResultsForSchoolInRace, getSchoolRoster } from "@/lib/results";
 import SubmitForm from "@/app/components/SubmitForm";
 import HelpButton from "@/app/components/HelpButton";
@@ -26,21 +22,21 @@ export default async function SubmitPage({
   const ctx = await resolveToken(params.token);
   if (!ctx) notFound();
 
-  const db = getDb();
-  const [existingResults, roster, [race]] = await Promise.all([
+  const [existingResults, roster] = await Promise.all([
     getResultsForSchoolInRace(ctx.raceId, ctx.schoolId),
     getSchoolRoster(ctx.schoolId),
-    db.select({ eventId: races.eventId }).from(races).where(eq(races.id, ctx.raceId)),
   ]);
-  const hubToken = race ? await getOrCreateHubToken(race.eventId, ctx.schoolId) : null;
 
   return (
     <main className="mx-auto max-w-md p-4">
-      {hubToken && (
-        <Link className="text-sm text-blue-600 underline" href={`/hub/${hubToken}`}>
-          &larr; Back to all races
-        </Link>
-      )}
+      {/* Straight to the school page, which asks for the code if this device isn't
+          unlocked — a per-race link only grants this one race. */}
+      <Link
+        className="text-sm text-blue-600 underline"
+        href={`/school/${ctx.schoolSlug}?event=${ctx.eventId}`}
+      >
+        &larr; Back to all races
+      </Link>
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-bold">{ctx.schoolName}</h1>
         <HelpButton topics={["entry"]} />
