@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import "./globals.css";
 import NavHeader from "./components/NavHeader";
 
@@ -19,6 +20,11 @@ export default function RootLayout({
       <body className="min-h-screen bg-white text-gray-900">
         <NavHeader />
         {children}
+        <footer className="border-t px-3 py-4 text-center text-sm print:hidden">
+          <Link className="inline-flex min-h-[44px] items-center px-1 text-blue-600 underline" href="/privacy">
+            Privacy
+          </Link>
+        </footer>
       </body>
     </html>
   );
