@@ -6,6 +6,7 @@ import { events, races } from "@/db/schema";
 import { getPublishedRaceResults } from "@/lib/public-results";
 import { isUuid } from "@/lib/ids";
 import { raceLabel } from "@/lib/raceLabels";
+import { shortName } from "@/lib/eventSummary";
 import HelpButton from "@/app/components/HelpButton";
 import EventSummaryView from "./EventSummaryView";
 
@@ -106,7 +107,7 @@ async function RaceResults({
             {individual.map((r) => (
               <tr key={r.id} className="border-t">
                 <td className="py-1">{showPosition(r.position)}</td>
-                <td className="py-1">{r.runnerName}</td>
+                <td className="py-1">{shortName(r.runnerName)}</td>
                 <td className="py-1">{r.schoolName}</td>
               </tr>
             ))}

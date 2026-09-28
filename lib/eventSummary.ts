@@ -67,8 +67,9 @@ export type EventSummary = {
   races: RaceSummary[];
 };
 
-/** "Alexander Smith" → "Alexander S." — the summary gets shared around, so it
- * shows less than the full race results page. */
+/** "Alexander Smith" → "Alexander S." — how every public page (summary, full race
+ * results, standings) shows a runner, so children's full names aren't on the open
+ * web. Teachers still see full names behind their school code. */
 export function shortName(fullName: string): string {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
   if (parts.length <= 1) return parts[0] ?? "";

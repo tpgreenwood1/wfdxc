@@ -4,6 +4,7 @@ import { seasons } from "@/db/schema";
 import { getSeasonStandings } from "@/lib/standings-query";
 import type { Gender, YearGroup } from "@/lib/types";
 import HelpButton from "@/app/components/HelpButton";
+import { shortName } from "@/lib/eventSummary";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +86,7 @@ export default async function StandingsPage({
                 {standings.qualified.map((r, i) => (
                   <tr key={r.runnerId} className="border-t">
                     <td className="py-1">
-                      {i + 1}. {r.runnerName}
+                      {i + 1}. {shortName(r.runnerName)}
                     </td>
                     <td className="py-1">{r.racesCompleted}</td>
                     <td className="py-1">{r.total}</td>
@@ -101,7 +102,7 @@ export default async function StandingsPage({
               <ul className="mt-1 text-sm text-gray-600">
                 {standings.notYetQualified.map((r) => (
                   <li key={r.runnerId}>
-                    {r.runnerName} — {r.racesCompleted} race(s)
+                    {shortName(r.runnerName)} — {r.racesCompleted} race(s)
                   </li>
                 ))}
               </ul>

@@ -5,6 +5,8 @@ import NavHeader from "./components/NavHeader";
 export const metadata: Metadata = {
   title: "XC League",
   description: "Junior cross country league scoring",
+  // Results list children by name and school — keep every page out of search engines.
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({
