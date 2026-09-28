@@ -3,16 +3,17 @@ import { cookies } from "next/headers";
 import { getDb } from "@/db/client";
 import { schools } from "@/db/schema";
 import { LAST_SCHOOL_COOKIE } from "@/lib/schoolAccess";
+import { getLatestResultsEventId } from "@/lib/public-results";
 import HelpButton from "./components/HelpButton";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const db = getDb();
-  const allSchools = await db
-    .select({ name: schools.name, slug: schools.slug })
-    .from(schools)
-    .orderBy(schools.name);
+  const [allSchools, latestEventId] = await Promise.all([
+    db.select({ name: schools.name, slug: schools.slug }).from(schools).orderBy(schools.name),
+    getLatestResultsEventId(),
+  ]);
   const lastSlug = cookies().get(LAST_SCHOOL_COOKIE)?.value;
   const lastSchool = allSchools.find((s) => s.slug === lastSlug);
 
@@ -35,10 +36,10 @@ export default async function HomePage() {
 
       <section className="grid grid-cols-2 gap-2">
         <Link
-          href="/results"
+          href={latestEventId ? `/results/${latestEventId}` : "/results"}
           className="flex min-h-[48px] items-center justify-center rounded-lg border text-blue-700"
         >
-          Race results
+          Latest results
         </Link>
         <Link
           href="/standings"

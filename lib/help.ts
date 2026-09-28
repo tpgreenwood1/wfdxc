@@ -101,10 +101,15 @@ export const HELP_GUIDES = {
     title: "Race results",
     summary: "Finishing places and team scores for every finished race.",
     steps: [
-      "Pick an event, then a race.",
-      "You'll see every runner's place and each school's team result.",
+      "Pick an event. Its summary shows how many runners and schools took part, and the top 3 runners and top 3 teams in every race.",
+      "Tap \"Runners from each school\" to see how many children each school brought.",
+      "Tap \"Full results\" under a race to see every runner's place and each school's team result.",
     ],
-    tips: ["How team places are worked out is explained under \"How scoring works\" in Help."],
+    tips: [
+      "\"Unknown runner\" means someone from outside the league finished in that place.",
+      "\"=2nd\" means two runners or teams share the place.",
+      "How team places are worked out is explained under \"How scoring works\" in Help.",
+    ],
   },
   standings: {
     title: "Season standings",

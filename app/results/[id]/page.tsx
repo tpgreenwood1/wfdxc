@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, eq, isNotNull, ne } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { events, races } from "@/db/schema";
 import { getPublishedRaceResults } from "@/lib/public-results";
 import { isUuid } from "@/lib/ids";
-import { sortRaces } from "@/lib/raceLabels";
+import { raceLabel } from "@/lib/raceLabels";
 import HelpButton from "@/app/components/HelpButton";
+import EventSummaryView from "./EventSummaryView";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ export default async function ResultsPage({ params }: { params: { id: string } }
     return (
       <RaceResults
         raceId={race.id}
+        eventId={race.eventId}
         yearGroup={race.yearGroup}
         gender={race.gender}
         beingCorrected={race.status === "open"}
@@ -34,66 +36,28 @@ export default async function ResultsPage({ params }: { params: { id: string } }
 
   const [event] = await db.select().from(events).where(eq(events.id, params.id));
   if (event) {
-    return <EventRaceList eventId={event.id} eventName={event.name} eventDate={event.date} />;
+    return (
+      <EventSummaryView
+        eventId={event.id}
+        eventName={event.name}
+        eventDate={event.date}
+        location={event.location}
+      />
+    );
   }
 
   notFound();
 }
 
-async function EventRaceList({
-  eventId,
-  eventName,
-  eventDate,
-}: {
-  eventId: string;
-  eventName: string;
-  eventDate: string;
-}) {
-  const db = getDb();
-  const closedRaces = sortRaces(
-    await db
-      .select()
-      .from(races)
-      .where(
-        and(
-          eq(races.eventId, eventId),
-          ne(races.status, "cancelled"),
-          isNotNull(races.publishedAt)
-        )
-      )
-  );
-
-  return (
-    <main className="mx-auto max-w-2xl p-6">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">
-          {eventName} — {eventDate}
-        </h1>
-        <HelpButton topics={["results", "scoring"]} />
-      </div>
-      <ul className="mt-4 space-y-1">
-        {closedRaces.map((race) => (
-          <li key={race.id}>
-            <Link className="text-blue-600 underline" href={`/results/${race.id}`}>
-              {race.yearGroup.toUpperCase()} · {race.gender}
-            </Link>
-          </li>
-        ))}
-        {closedRaces.length === 0 && (
-          <p className="text-gray-600">No results published yet.</p>
-        )}
-      </ul>
-    </main>
-  );
-}
-
 async function RaceResults({
   raceId,
+  eventId,
   yearGroup,
   gender,
   beingCorrected,
 }: {
   raceId: string;
+  eventId: string;
   yearGroup: string;
   gender: string;
   beingCorrected: boolean;
@@ -110,10 +74,15 @@ async function RaceResults({
 
   return (
     <main className="mx-auto max-w-2xl space-y-6 p-6">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">
-          {yearGroup.toUpperCase()} · {gender}
-        </h1>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm">
+            <Link className="text-blue-600 underline" href={`/results/${eventId}`}>
+              ← Event summary
+            </Link>
+          </p>
+          <h1 className="text-2xl font-bold">{raceLabel({ yearGroup, gender })}</h1>
+        </div>
         <HelpButton topics={["results", "scoring"]} />
       </div>
 

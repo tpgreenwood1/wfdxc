@@ -1,6 +1,7 @@
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { events, publishedIndividualResults, publishedTeamResults, races } from "@/db/schema";
+import { summariseEvent, type EventSummary } from "./eventSummary";
 
 /** Reads only the permanent published snapshot — never live results/runners/schools —
  * so it's unaffected by later transfers, merges, or pruning. */
@@ -108,4 +109,85 @@ export async function getSchoolSeasonResults(
     race.runners.push({ runnerName: row.runnerName, position: row.position });
   }
   return [...byRace.values()];
+}
+
+/** An event's summary page: headline numbers and every published race's top three.
+ * Same rules as the race pages — published snapshot only, cancelled races left out. */
+export async function getEventSummary(eventId: string): Promise<EventSummary> {
+  const db = getDb();
+  const published = and(
+    eq(races.eventId, eventId),
+    ne(races.status, "cancelled"),
+    isNotNull(races.publishedAt)
+  );
+  const [raceRows, individual, teams] = await Promise.all([
+    db
+      .select({ raceId: races.id, yearGroup: races.yearGroup, gender: races.gender, status: races.status })
+      .from(races)
+      .where(published),
+    db
+      .select({
+        raceId: publishedIndividualResults.raceId,
+        runnerId: publishedIndividualResults.runnerId,
+        runnerName: publishedIndividualResults.runnerName,
+        schoolId: publishedIndividualResults.schoolId,
+        schoolName: publishedIndividualResults.schoolName,
+        position: publishedIndividualResults.position,
+      })
+      .from(publishedIndividualResults)
+      .where(eq(publishedIndividualResults.eventId, eventId)),
+    db
+      .select({
+        raceId: publishedTeamResults.raceId,
+        schoolName: publishedTeamResults.schoolName,
+        scoringCount: publishedTeamResults.scoringCount,
+        rank: publishedTeamResults.rank,
+      })
+      .from(publishedTeamResults)
+      .where(eq(publishedTeamResults.eventId, eventId)),
+  ]);
+
+  return summariseEvent(
+    raceRows.map((r) => ({
+      raceId: r.raceId,
+      yearGroup: r.yearGroup,
+      gender: r.gender,
+      beingCorrected: r.status === "open",
+    })),
+    individual,
+    teams
+  );
+}
+
+/** Runner and school counts per event, for the one-line subtitle on /results.
+ * Counted the same way as summariseEvent (frozen names stand in for pruned ids). */
+export async function getEventHeadlineCounts(): Promise<
+  Map<string, { runners: number; schools: number }>
+> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      eventId: publishedIndividualResults.eventId,
+      runners: sql<number>`count(distinct coalesce(${publishedIndividualResults.runnerId}::text, 'name:' || ${publishedIndividualResults.runnerName} || '|' || ${publishedIndividualResults.schoolName}))::int`,
+      schools: sql<number>`count(distinct coalesce(${publishedIndividualResults.schoolId}::text, 'name:' || ${publishedIndividualResults.schoolName}))::int`,
+    })
+    .from(publishedIndividualResults)
+    .innerJoin(races, eq(publishedIndividualResults.raceId, races.id))
+    .where(ne(races.status, "cancelled"))
+    .groupBy(publishedIndividualResults.eventId);
+  return new Map(rows.map((r) => [r.eventId, { runners: r.runners, schools: r.schools }]));
+}
+
+/** The most recent event with any published race — where the home page's results
+ * button goes. Null before anything's been published. */
+export async function getLatestResultsEventId(): Promise<string | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ id: events.id })
+    .from(events)
+    .innerJoin(races, eq(races.eventId, events.id))
+    .where(and(ne(races.status, "cancelled"), isNotNull(races.publishedAt)))
+    .orderBy(desc(events.date))
+    .limit(1);
+  return row?.id ?? null;
 }

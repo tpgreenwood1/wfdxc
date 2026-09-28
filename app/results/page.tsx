@@ -3,14 +3,16 @@ import { desc, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { events, seasons } from "@/db/schema";
 import HelpButton from "@/app/components/HelpButton";
+import { getEventHeadlineCounts } from "@/lib/public-results";
 
 export const dynamic = "force-dynamic";
 
 export default async function ResultsIndexPage() {
   const db = getDb();
-  const [allSeasons, allEvents] = await Promise.all([
+  const [allSeasons, allEvents, counts] = await Promise.all([
     db.select().from(seasons),
     db.select().from(events).orderBy(desc(events.date)),
+    getEventHeadlineCounts(),
   ]);
 
   const seasonName = new Map(allSeasons.map((s) => [s.id, s.name]));
@@ -37,14 +39,22 @@ export default async function ResultsIndexPage() {
           <h2 className="font-semibold text-gray-700">
             {seasonName.get(seasonId) ?? "Season"}
           </h2>
-          <ul className="mt-1 space-y-1">
-            {seasonEvents.map((event) => (
-              <li key={event.id}>
-                <Link className="text-blue-600 underline" href={`/results/${event.id}`}>
-                  {event.name} — {event.date}
-                </Link>
-              </li>
-            ))}
+          <ul className="mt-1 space-y-2">
+            {seasonEvents.map((event) => {
+              const count = counts.get(event.id);
+              return (
+                <li key={event.id}>
+                  <Link className="text-blue-600 underline" href={`/results/${event.id}`}>
+                    {event.name} — {event.date}
+                  </Link>
+                  <p className="text-sm text-gray-600">
+                    {count
+                      ? `${count.runners} runners · ${count.schools} schools`
+                      : "No results yet"}
+                  </p>
+                </li>
+              );
+            })}
           </ul>
         </section>
       ))}

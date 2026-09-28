@@ -12,7 +12,9 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed-runners.ts",
-    "db:delete-event": "tsx scripts/delete-event.ts"
+    "db:delete-event": "tsx scripts/delete-event.ts",
+    "db:backup": "tsx scripts/backup-db.ts",
+    "db:restore": "tsx scripts/restore-db.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
