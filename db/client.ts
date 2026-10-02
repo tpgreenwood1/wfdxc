@@ -21,6 +21,9 @@ let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 export function getDb() {
   if (!_db) {
     const pool = new Pool({ connectionString: getDatabaseUrl() });
+    // An idle connection dropped by Neon is emitted as a pool "error"; unhandled, that
+    // crashes the whole server instance. The pool discards the dead client by itself.
+    pool.on("error", (err) => console.error("Postgres pool error", err));
     _db = drizzle(pool, { schema });
   }
   return _db;

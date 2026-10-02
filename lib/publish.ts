@@ -32,8 +32,9 @@ async function fetchRaceWithSeason(raceId: string) {
   return row ?? null;
 }
 
-async function fetchLiveResultRows(raceId: string): Promise<ResultRow[]> {
-  const db = getDb();
+type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+
+async function fetchLiveResultRows(db: Tx, raceId: string): Promise<ResultRow[]> {
   return db
     .select({
       runnerId: results.runnerId,
@@ -63,12 +64,17 @@ export async function publishRace(raceId: string): Promise<void> {
     );
   }
 
-  const rows = await fetchLiveResultRows(raceId);
-  const individual = computeIndividualResults(rows);
-  const teams = computeTeamResults(rows);
-  const publishedAt = new Date();
-
   await db.transaction(async (tx) => {
+    // Serialises concurrent publishes of the same race (two "Finalise" clicks, two
+    // tabs): without it, the second transaction's delete misses the first's
+    // uncommitted rows and both snapshots end up inserted. The live read happens after
+    // the lock so the snapshot reflects every result committed before it.
+    await tx.select({ id: races.id }).from(races).where(eq(races.id, raceId)).for("update");
+    const rows = await fetchLiveResultRows(tx, raceId);
+    const individual = computeIndividualResults(rows);
+    const teams = computeTeamResults(rows);
+    const publishedAt = new Date();
+
     await tx
       .delete(publishedIndividualResults)
       .where(eq(publishedIndividualResults.raceId, raceId));
