@@ -1,0 +1,1 @@
+ALTER TABLE "races" ADD COLUMN "pruned_at" timestamp with time zone;

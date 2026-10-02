@@ -22,6 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - DB migration generate / apply: `npm run db:generate` / `npm run db:migrate`
 - Seed runners + schools from a text file: `npm run db:seed` (reads `dbNameSeed.txt` by default; pass a different path as `npm run db:seed -- path/to/file.txt`). Format is tab- or comma-separated `Name<TAB>School` per line, header row optional, `#` comments allowed. Idempotent — matches existing schools/runners case-insensitively rather than duplicating.
 - Backup / restore (run locally, e.g. after each event): `npm run db:backup -- "label"` writes a consistent JSON snapshot of every public table to `backups/` (gitignored — contains children's names and access codes). `npm run db:restore -- backups/<file>.json` is a dry run comparing row counts; add `--yes` to wipe and reload all tables in one transaction (takes a `pre-restore` backup first, refuses if the schema has changed since the backup).
+- Data retention (run at the start of each season): `npm run db:prune` is a dry run; `--yes` takes a `pre-prune` backup then, in one transaction, deletes events older than 3 years (and seasons left empty) and runners with no result since the previous season started (rules in `lib/retention.ts`, promised by `/privacy`). Races that lose live results this way get `races.pruned_at`, after which `publishRace` refuses and `republishIfClosed` / `republishClosedRacesForRunner` skip them — otherwise a republish would drop the pruned runners from the frozen published results.
 
 ## Deploy
 

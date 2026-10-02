@@ -64,6 +64,13 @@
       "when": 1790340785898,
       "tag": "0008_tie_runner_count",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790871359101,
+      "tag": "0009_race_pruned_at",
+      "breakpoints": true
     }
   ]
 }

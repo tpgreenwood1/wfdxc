@@ -192,6 +192,12 @@ export default async function RacePage({ params }: { params: { raceId: string } 
             <span className="text-amber-800"> · {readiness.notStarted} with nothing yet</span>
           )}
         </p>
+        {race.prunedAt && (
+          <p className="rounded bg-amber-50 p-2 text-sm text-amber-900">
+            Archived: some runners in this race were removed under the data-retention policy, so the
+            table below is incomplete. The public results are final and won&apos;t be republished.
+          </p>
+        )}
 
         <div className="flex flex-wrap items-center gap-2">
           {race.status === "open" && (

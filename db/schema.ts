@@ -68,6 +68,10 @@ export const races = pgTable(
     status: raceStatusEnum("status").notNull().default("open"),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     publishedResultCount: integer("published_result_count"),
+    // Set by db:prune when runners in this race were deleted (taking their live results
+    // with them). Its published snapshot is then final — republishing from what's left
+    // of the live results would silently drop those runners.
+    prunedAt: timestamp("pruned_at", { withTimezone: true }),
   },
   (table) => ({
     eventYearGenderUnique: unique().on(

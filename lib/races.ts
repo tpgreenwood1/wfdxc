@@ -28,6 +28,10 @@ export async function setRaceStatus(
   status: RaceStatus
 ): Promise<void> {
   const db = getDb();
+  const [race] = await db.select({ prunedAt: races.prunedAt }).from(races).where(eq(races.id, raceId));
+  if (race?.prunedAt) {
+    throw new Error("This race's results are archived under the data-retention policy and can't be changed.");
+  }
   if (status === "cancelled") {
     await db.transaction(async (tx) => {
       await tx
