@@ -131,7 +131,7 @@ export default async function EventPage({
           )}
         </>
       ) : (
-        <SchoolsChaseList schools={schools} eventId={event.id} eventName={event.name} />
+        <SchoolsChaseList schools={schools} races={races} eventId={event.id} eventName={event.name} />
       )}
 
       <section className="flex flex-wrap gap-2 text-sm">
@@ -263,13 +263,19 @@ const PROGRESS: Record<BoardSchool["progress"], { label: string; style: string }
 
 function SchoolsChaseList({
   schools,
+  races,
   eventId,
   eventName,
 }: {
   schools: BoardSchool[];
+  races: BoardRace[];
   eventId: string;
   eventName: string;
 }) {
+  // Paper sheet from a school: start at the first race they haven't covered yet.
+  const firstOpen = races.find((r) => r.status === "open");
+  const enterRaceId = (school: BoardSchool) =>
+    school.outstanding[0]?.raceId ?? school.notMarkedDone[0]?.raceId ?? firstOpen?.id;
   const order = { not_started: 0, entering: 1, done: 2 };
   const sorted = [...schools].sort(
     (a, b) => order[a.progress] - order[b.progress] || a.name.localeCompare(b.name)
@@ -312,6 +318,14 @@ function SchoolsChaseList({
             </p>
             {school.progress !== "done" && (
               <div className="flex flex-wrap items-center gap-2">
+                {enterRaceId(school) && (
+                  <Link
+                    href={`/admin/races/${enterRaceId(school)}/enter/${school.id}`}
+                    className="flex min-h-[40px] items-center rounded bg-blue-600 px-3 text-sm font-medium text-white"
+                  >
+                    Enter results
+                  </Link>
+                )}
                 <ShareLinkButton
                   path={teacherLinkPath(school)}
                   title={`${school.name} results`}

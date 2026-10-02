@@ -129,6 +129,9 @@ export async function saveSchoolResult(input: {
   schoolId: string;
   schoolName: string;
   row: SaveResultRow;
+  /** Recorded on the result; defaults to the school's name. The admin's "enter for a
+   * school" page passes "admin". */
+  submittedBy?: string;
 }): Promise<SubmittedResult> {
   const { row } = input;
   if (!isValidPosition(row.position)) {
@@ -179,7 +182,7 @@ export async function saveSchoolResult(input: {
       runnerId,
       schoolId: input.schoolId,
       position: row.position,
-      submittedBy: input.schoolName,
+      submittedBy: input.submittedBy ?? input.schoolName,
     }),
     // A school that said "no runners" and then enters one clearly did have runners.
     db

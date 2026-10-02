@@ -12,7 +12,6 @@ import {
   getConfirmedStatesForRace,
   raceReadiness,
   schoolRaceState,
-  type SchoolRaceState,
 } from "@/lib/raceSchoolStatus";
 import { formatEventDate } from "@/lib/events";
 import { isUuid } from "@/lib/ids";
@@ -23,6 +22,7 @@ import ConfirmSubmitButton from "@/app/components/ConfirmSubmitButton";
 import SubmitButton from "@/app/components/SubmitButton";
 import { getDoubleEntriesForEvent } from "@/lib/eventBoard";
 import MoveEntries from "./MoveEntries";
+import { STATE_LABEL, STATE_STYLE } from "./schoolStates";
 import {
   regenerateTokenAction,
   republishAction,
@@ -31,20 +31,6 @@ import {
 } from "./actions";
 
 export const dynamic = "force-dynamic";
-
-const STATE_LABEL: Record<SchoolRaceState, string> = {
-  done: "Done",
-  no_runners: "No runners",
-  entering: "Entering",
-  not_started: "Nothing yet",
-};
-
-const STATE_STYLE: Record<SchoolRaceState, string> = {
-  done: "bg-green-100 text-green-800",
-  no_runners: "bg-gray-100 text-gray-600",
-  entering: "bg-blue-100 text-blue-800",
-  not_started: "bg-amber-100 text-amber-900",
-};
 
 export default async function RacePage({ params }: { params: { raceId: string } }) {
   if (!isUuid(params.raceId)) notFound();
@@ -192,6 +178,28 @@ export default async function RacePage({ params }: { params: { raceId: string } 
             <span className="text-amber-800"> · {readiness.notStarted} with nothing yet</span>
           )}
         </p>
+        {race.status !== "cancelled" && (
+          <nav aria-label="Enter results for a school" className="space-y-1">
+            <p className="text-xs text-gray-500">
+              Enter a paper sheet for a school (same form teachers use):
+            </p>
+            <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+              {[...schoolStates]
+                .sort((a, b) => Number(b.state === "not_started") - Number(a.state === "not_started"))
+                .map((s) => (
+                  <Link
+                    key={s.id}
+                    href={`/admin/races/${race.id}/enter/${s.id}`}
+                    title={STATE_LABEL[s.state]}
+                    className={`flex min-h-[36px] shrink-0 items-center whitespace-nowrap rounded-full px-3 text-sm ${STATE_STYLE[s.state]}`}
+                  >
+                    {s.name}
+                    {s.entered > 0 && <span className="ml-1 opacity-70">· {s.entered}</span>}
+                  </Link>
+                ))}
+            </div>
+          </nav>
+        )}
         {race.prunedAt && (
           <p className="rounded bg-amber-50 p-2 text-sm text-amber-900">
             Archived: some runners in this race were removed under the data-retention policy, so the
@@ -323,7 +331,17 @@ export default async function RacePage({ params }: { params: { raceId: string } 
               {schoolStates.map((s) => (
                 <li key={s.id} className="flex flex-wrap items-center gap-2 py-1.5">
                   <span className="flex-1">
-                    {s.name}
+                    {race.status === "cancelled" ? (
+                      s.name
+                    ) : (
+                      <Link
+                        className="text-blue-700 underline"
+                        href={`/admin/races/${race.id}/enter/${s.id}`}
+                        title={`Enter results for ${s.name}`}
+                      >
+                        {s.name}
+                      </Link>
+                    )}
                     {s.entered > 0 && <span className="text-gray-500"> · {s.entered}</span>}
                   </span>
                   <span className={`rounded px-1.5 py-0.5 text-xs ${STATE_STYLE[s.state]}`}>

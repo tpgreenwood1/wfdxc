@@ -11,6 +11,7 @@ import {
 } from "@/lib/races";
 import { deleteResult, moveSchoolEntries, upsertResult } from "@/lib/results";
 import { publishRace, republishIfClosed } from "@/lib/publish";
+import { afterResultChange, revalidateRace } from "./revalidate";
 import { quickAddRunner } from "@/lib/runners";
 import { regenerateToken } from "@/lib/tokens";
 import { setConfirmedState, type ConfirmedState } from "@/lib/raceSchoolStatus";
@@ -29,24 +30,6 @@ function parsePosition(raw: FormDataEntryValue | null): number | null {
 }
 
 const BAD_PLACE = `Place must be a whole number from 1 to ${MAX_POSITION}.`;
-
-/** Everything that shows this race's results: admin views, the public page and — when
- * a finalised race is republished — season standings. */
-function revalidateRace(raceId: string, republished = false) {
-  revalidatePath(`/admin/races/${raceId}`);
-  revalidatePath("/admin/events/[eventId]", "page");
-  revalidatePath("/admin");
-  revalidatePath(`/results/${raceId}`);
-  if (republished) {
-    revalidatePath("/results");
-    revalidatePath("/standings");
-  }
-}
-
-async function afterResultChange(raceId: string) {
-  const republished = await republishIfClosed(raceId);
-  revalidateRace(raceId, republished);
-}
 
 export async function setStatusAction(formData: FormData): Promise<void> {
   const raceId = String(formData.get("raceId"));

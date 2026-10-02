@@ -158,7 +158,11 @@ export default function SubmitForm({
   const chains = useRef(new Map<string, Promise<void>>());
   // Last server result per row key — survives the row being removed from the list,
   // so a removal queued behind an in-flight save still knows which result to delete.
-  const savedResults = useRef(new Map<string, SubmittedResult>());
+  // Seeded with the results the page loaded (row key = result id): without that, ×
+  // on a row saved before this page load would hide it but never delete it.
+  const savedResults = useRef(
+    new Map<string, SubmittedResult>(initialResults.map((r) => [r.id, r]))
+  );
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const positionInputs = useRef(new Map<string, HTMLInputElement>());
   const searchInputRef = useRef<HTMLInputElement>(null);
