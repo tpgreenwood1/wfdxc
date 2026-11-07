@@ -6,6 +6,12 @@ import type { RunnerSearchResult } from "@/lib/runners";
 import type { ActionResult } from "@/lib/actionResult";
 import { filterRoster } from "@/lib/rosterFilter";
 import { HIGH_POSITION_WARNING, MAX_POSITION } from "@/lib/raceIssues";
+import {
+  needsWarning,
+  summariseMismatches,
+  WRONG_RACE_BANNER_THRESHOLD,
+  type RunnerRaceHint,
+} from "@/lib/raceFit";
 
 type Row = {
   key: string;
@@ -58,6 +64,19 @@ function existingToRows(existing: SubmittedResult[]): Row[] {
 
 function displayName(r: { name: string; duplicateCount: number; duplicateIndex: number }) {
   return r.duplicateCount > 1 ? `${r.name} (${r.duplicateIndex})` : r.name;
+}
+
+/** The row warning for a runner who looks like they're in the wrong race, if any. */
+function wrongRaceWarning(hint: RunnerRaceHint | undefined): string | null {
+  if (!hint) return null;
+  if (hint.otherRacesToday.length > 0) {
+    const races = hint.otherRacesToday.map((r) => r.label).join(" and ");
+    return `Already entered in ${races} at this event — check you're on the right race.`;
+  }
+  if (hint.lastRanMismatch && hint.lastRan) {
+    return `Last ran in ${hint.lastRan.label} (${hint.lastRan.eventName}) — is this the right race?`;
+  }
+  return null;
 }
 
 /** Not yet safely on the server: never saved, edited since, or failed. */
@@ -125,6 +144,8 @@ export default function SubmitForm({
   onRename,
   onSearchOtherSchools,
   onClaimRunner,
+  raceName,
+  raceHints = {},
 }: {
   /** Identifies this (race, school) in the phone's storage — `xc-entry:${raceId}:${schoolId}`. */
   storageKey: string;
@@ -138,6 +159,10 @@ export default function SubmitForm({
     query: string
   ) => Promise<ActionResult<{ matches: RunnerSearchResult[] }>>;
   onClaimRunner?: (runnerId: string) => Promise<ActionResult>;
+  /** This race's label ("Reception Girls"), for the "right race?" banner. */
+  raceName?: string;
+  /** Where runners have raced before, keyed by runner id (`getRunnerRaceHints`). */
+  raceHints?: Record<string, RunnerRaceHint>;
 }) {
   const [rows, setRows] = useState<Row[]>(() => existingToRows(initialResults));
   // Mirror of `rows` that async save chains read, so they always see the latest edit.
@@ -479,6 +504,10 @@ export default function SubmitForm({
     (r) => typeof parsePosition(r.position) === "number" && isUnsaved(r)
   ).length;
   const saving = rows.some((r) => r.saving);
+  const outOfPlace = summariseMismatches(
+    rows.map((r) => (r.runnerId ? raceHints[r.runnerId] : undefined))
+  );
+  const outOfPlaceCount = outOfPlace.reduce((n, m) => n + m.count, 0);
 
   let status: ReactNode = null;
   if (rejected.length > 0) {
@@ -570,6 +599,24 @@ export default function SubmitForm({
         </div>
       )}
 
+      {isEditable && outOfPlaceCount >= WRONG_RACE_BANNER_THRESHOLD && (
+        <div role="alert" className="rounded-lg border-2 border-amber-400 bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="font-semibold">Are you on the right race?</p>
+          <p>
+            {raceName ? (
+              <>
+                This is <strong>{raceName}</strong>, but {outOfPlaceCount} of these runners
+              </>
+            ) : (
+              <>{outOfPlaceCount} of these runners</>
+            )}{" "}
+            look like they belong in a different race (
+            {outOfPlace.map((m) => `${m.label}${m.count > 1 ? ` ×${m.count}` : ""}`).join(", ")}).
+            If so, remove them here and enter them on the right race&apos;s page.
+          </p>
+        </div>
+      )}
+
       {rows.length === 0 && (
         <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
           {isEditable
@@ -587,6 +634,7 @@ export default function SubmitForm({
           const isRenaming = renamingKey === row.key;
           const parsed = parsePosition(row.position);
           const isDuplicate = typeof parsed === "number" && duplicatePositions.includes(parsed);
+          const raceWarning = row.runnerId ? wrongRaceWarning(raceHints[row.runnerId]) : null;
           const inputTone = !isEditable
             ? ""
             : parsed === "invalid" || (row.error && !row.retryable)
@@ -672,6 +720,9 @@ export default function SubmitForm({
                   </button>
                 )}
               </div>
+              {isEditable && raceWarning && (
+                <p className="mt-1 text-xs text-amber-800">⚠ {raceWarning}</p>
+              )}
               {isEditable && parsed === "invalid" && (
                 <p className="mt-1 text-xs text-red-700">
                   Position must be a whole number from 1 to {MAX_POSITION}.
@@ -732,6 +783,7 @@ export default function SubmitForm({
           inputRef={searchInputRef}
           roster={roster}
           existing={rows}
+          raceHints={raceHints}
           onPick={addRow}
           onSearchOtherSchools={onSearchOtherSchools}
         />
@@ -744,12 +796,14 @@ function RunnerPicker({
   inputRef,
   roster,
   existing,
+  raceHints,
   onPick,
   onSearchOtherSchools,
 }: {
   inputRef: RefObject<HTMLInputElement>;
   roster: RosterRunner[];
   existing: Row[];
+  raceHints: Record<string, RunnerRaceHint>;
   onPick: (fields: Pick<Row, "runnerId" | "runnerName" | "newRunnerName" | "otherSchool">) => void;
   onSearchOtherSchools?: (
     query: string
@@ -861,6 +915,7 @@ function RunnerPicker({
                 {r.duplicateCount > 1 && (
                   <span className="ml-1 text-xs text-gray-500">({r.duplicateIndex})</span>
                 )}
+                <PickerRaceNote hint={raceHints[r.id]} />
               </button>
             </li>
           ))}
@@ -911,4 +966,14 @@ function RunnerPicker({
       )}
     </div>
   );
+}
+
+/** A short note after a name in the runner list when they look out of place here. */
+function PickerRaceNote({ hint }: { hint: RunnerRaceHint | undefined }) {
+  if (!hint || !needsWarning(hint)) return null;
+  const text =
+    hint.otherRacesToday.length > 0
+      ? `already in ${hint.otherRacesToday.map((r) => r.label).join(", ")}`
+      : `last ran ${hint.lastRan?.label}`;
+  return <span className="ml-1 text-xs font-normal text-amber-800">· ⚠ {text}</span>;
 }

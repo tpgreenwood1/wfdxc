@@ -5,7 +5,7 @@ import { getDb } from "@/db/client";
 import { events, races, results, schools } from "@/db/schema";
 import { isUuid } from "@/lib/ids";
 import { raceLabel, sortRaces } from "@/lib/raceLabels";
-import { getResultsForSchoolInRace, getSchoolRoster } from "@/lib/results";
+import { getResultsForSchoolInRace, getRunnerRaceHints, getSchoolRoster } from "@/lib/results";
 import { getConfirmedStatesForRace, schoolRaceState } from "@/lib/raceSchoolStatus";
 import { getSchoolById } from "@/lib/schools";
 import SubmitForm from "@/app/components/SubmitForm";
@@ -44,7 +44,8 @@ export default async function AdminEnterForSchoolPage({
   if (!row || !school) notFound();
   const { race, event } = row;
 
-  const [existingResults, roster, eventRaces, confirmed, allSchools, counts] = await Promise.all([
+  const [existingResults, roster, eventRaces, confirmed, allSchools, counts, raceHints] =
+    await Promise.all([
     getResultsForSchoolInRace(race.id, school.id),
     getSchoolRoster(school.id),
     db.select().from(races).where(eq(races.eventId, event.id)),
@@ -55,6 +56,7 @@ export default async function AdminEnterForSchoolPage({
       .from(results)
       .where(eq(results.raceId, race.id))
       .groupBy(results.schoolId),
+    getRunnerRaceHints(race.id, school.id),
   ]);
 
   const entered = new Map(counts.map((c) => [c.schoolId, Number(c.n)]));
@@ -160,6 +162,8 @@ export default async function AdminEnterForSchoolPage({
           isEditable
           initialResults={existingResults}
           roster={roster}
+          raceName={raceLabel(race)}
+          raceHints={raceHints}
           onSaveRow={adminSaveResultAction.bind(null, race.id, school.id)}
           onRemove={adminRemoveResultAction.bind(null, race.id, school.id)}
           onRename={adminRenameRunnerAction.bind(null, race.id)}

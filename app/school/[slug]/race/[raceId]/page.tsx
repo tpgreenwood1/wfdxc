@@ -6,7 +6,7 @@ import { events, races } from "@/db/schema";
 import { loadSchoolForPage } from "@/lib/schoolAccess";
 import { isUuid } from "@/lib/ids";
 import { raceLabel, sortRaces } from "@/lib/races";
-import { getResultsForSchoolInRace, getSchoolRoster } from "@/lib/results";
+import { getResultsForSchoolInRace, getRunnerRaceHints, getSchoolRoster } from "@/lib/results";
 import SubmitForm from "@/app/components/SubmitForm";
 import SubmitButton from "@/app/components/SubmitButton";
 import CodeGate from "../../CodeGate";
@@ -41,11 +41,12 @@ export default async function SchoolRaceEntryPage({
   if (!row) notFound();
   const { race, event } = row;
 
-  const [existingResults, roster, eventRaces, confirmed] = await Promise.all([
+  const [existingResults, roster, eventRaces, confirmed, raceHints] = await Promise.all([
     getResultsForSchoolInRace(race.id, school.id),
     getSchoolRoster(school.id),
     db.select().from(races).where(eq(races.eventId, event.id)),
     getConfirmedStatesForRace(race.id),
+    getRunnerRaceHints(race.id, school.id),
   ]);
   const markedNoRunners = confirmed.get(school.id) === "no_runners";
   const markedDone = confirmed.get(school.id) === "done";
@@ -143,6 +144,8 @@ export default async function SchoolRaceEntryPage({
           isEditable={isEditable}
           initialResults={existingResults}
           roster={roster}
+          raceName={raceLabel(race)}
+          raceHints={raceHints}
           onSaveRow={saveRaceResultAction.bind(null, school.slug, race.id)}
           onRemove={removeRaceResultAction.bind(null, school.slug, race.id)}
           onRename={renameRunnerAction.bind(null, school.slug)}

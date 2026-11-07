@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { resolveToken } from "@/lib/tokens";
-import { getResultsForSchoolInRace, getSchoolRoster } from "@/lib/results";
+import { getResultsForSchoolInRace, getRunnerRaceHints, getSchoolRoster } from "@/lib/results";
+import { raceLabel } from "@/lib/raceLabels";
 import SubmitForm from "@/app/components/SubmitForm";
 import HelpButton from "@/app/components/HelpButton";
 import {
@@ -22,9 +23,10 @@ export default async function SubmitPage({
   const ctx = await resolveToken(params.token);
   if (!ctx) notFound();
 
-  const [existingResults, roster] = await Promise.all([
+  const [existingResults, roster, raceHints] = await Promise.all([
     getResultsForSchoolInRace(ctx.raceId, ctx.schoolId),
     getSchoolRoster(ctx.schoolId),
+    getRunnerRaceHints(ctx.raceId, ctx.schoolId),
   ]);
 
   return (
@@ -63,6 +65,8 @@ export default async function SubmitPage({
         isEditable={ctx.isEditable}
         initialResults={existingResults}
         roster={roster}
+        raceName={raceLabel(ctx)}
+        raceHints={raceHints}
       />
     </main>
   );

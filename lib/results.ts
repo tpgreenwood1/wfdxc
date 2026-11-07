@@ -3,6 +3,12 @@ import { getDb } from "@/db/client";
 import { races, raceSchoolStatus, results, runners, schools } from "@/db/schema";
 import { quickAddRunner } from "./runners";
 import { isValidPosition, MAX_POSITION } from "./raceIssues";
+import {
+  buildRunnerHints,
+  type RaceRef,
+  type RunnerRaceHint,
+  type RunnerRaceHistoryRow,
+} from "./raceFit";
 
 export type RosterRunner = {
   id: string;
@@ -59,6 +65,46 @@ export async function getResultsForSchoolInRace(
     .innerJoin(runners, eq(results.runnerId, runners.id))
     .where(and(eq(results.raceId, raceId), eq(results.schoolId, schoolId)))
     .orderBy(results.position);
+}
+
+/**
+ * Where each runner the entry form might show has raced, so it can warn when a runner
+ * looks like they're going into the wrong race (see `lib/raceFit.ts`). Covers the
+ * school's roster plus anyone already entered for the school in this race (e.g. a
+ * transfer picked from another school), and only events up to this one's date.
+ */
+export async function getRunnerRaceHints(
+  raceId: string,
+  schoolId: string
+): Promise<Record<string, RunnerRaceHint>> {
+  const db = getDb();
+  const [current] = (
+    await db.execute<RaceRef>(sql`
+      select ra.id as "raceId", e.id as "eventId", e.season_id as "seasonId",
+        e.date::text as "eventDate", ra.year_group as "yearGroup", ra.gender as gender
+      from races ra join events e on e.id = ra.event_id
+      where ra.id = ${raceId}
+    `)
+  ).rows;
+  if (!current) return {};
+
+  const history = await db.execute<RunnerRaceHistoryRow>(sql`
+    select res.runner_id as "runnerId", ra.id as "raceId", e.id as "eventId",
+      e.season_id as "seasonId", e.date::text as "eventDate", e.name as "eventName",
+      ra.year_group as "yearGroup", ra.gender as gender
+    from results res
+    join races ra on ra.id = res.race_id
+    join events e on e.id = ra.event_id
+    where res.race_id <> ${raceId}
+      and ra.status <> 'cancelled'
+      and e.date <= ${current.eventDate}::date
+      and res.runner_id in (
+        select id from runners where school_id = ${schoolId} and retired_at is null
+        union
+        select runner_id from results where race_id = ${raceId} and school_id = ${schoolId}
+      )
+  `);
+  return buildRunnerHints(current, history.rows);
 }
 
 export async function upsertResult(input: {
