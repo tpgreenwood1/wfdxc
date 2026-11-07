@@ -316,7 +316,7 @@ export async function getRunnerHistory(runnerId: string): Promise<RunnerHistoryR
     join events e on e.id = ra.event_id
     join schools s on s.id = res.school_id
     where res.runner_id = ${runnerId}
-    order by e.date desc, ra.year_group, ra.gender
+    order by e.date desc, ra.year_group, ra.gender desc -- girls first (enum order is boys, girls)
   `);
   return result.rows;
 }
@@ -358,7 +358,7 @@ export async function findMergeCollisions(
     join races ra on ra.id = a.race_id
     join events e on e.id = ra.event_id
     where a.runner_id = ${runnerAId}
-    order by e.date, ra.year_group, ra.gender
+    order by e.date, ra.year_group, ra.gender desc -- girls first (enum order is boys, girls)
   `);
   return result.rows;
 }

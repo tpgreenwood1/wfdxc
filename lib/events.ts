@@ -13,7 +13,8 @@ export const YEAR_GROUPS: YearGroup[] = [
   "y5",
   "y6",
 ];
-export const GENDERS: Gender[] = ["boys", "girls"];
+// Girls first: the order they run on race day.
+export const GENDERS: Gender[] = ["girls", "boys"];
 
 export type RaceSpec = { yearGroup: YearGroup; gender: Gender };
 

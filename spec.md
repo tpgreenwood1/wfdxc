@@ -130,7 +130,7 @@ The form:
 
 The main teacher surface, built on top of the per-race form. One permanent page per school for the whole season, mobile-first for race day, with three tabs:
 
-- **Races** — the current event (today's, else the next upcoming, else the most recent), one row per year group with big Boys / Girls buttons showing "Enter results", "✓ n entered", "Results →" (closed) or "Cancelled"; other events this season below. Each race opens `/school/[slug]/race/[raceId]` (same entry form, editable while the race is `open`) with Prev / Next race buttons.
+- **Races** — the current event (today's, else the next upcoming, else the most recent), one row per year group with big Girls / Boys buttons (girls on the left, as they run first) showing "Enter results", "✓ n entered", "Results →" (closed) or "Cancelled"; other events this season below. Each race opens `/school/[slug]/race/[raceId]` (same entry form, editable while the race is `open`) with Prev / Next race buttons.
 - **Runners** — add one or several children, fix spellings, retire leavers (soft-delete) and bring them back.
 - **Results** — this school's published team placings and runner positions for the season, linking to full race results and standings.
 

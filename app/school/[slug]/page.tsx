@@ -96,7 +96,7 @@ export default async function SchoolRacesPage({
             if (!boys && !girls) return null;
             return (
               <div key={yearGroup} className="grid grid-cols-2 gap-2">
-                {[boys, girls].map((race, i) =>
+                {[girls, boys].map((race, i) =>
                   race ? (
                     <RaceButton
                       key={race.id}

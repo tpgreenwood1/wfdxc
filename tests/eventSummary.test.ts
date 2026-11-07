@@ -120,7 +120,7 @@ describe("team podium", () => {
 });
 
 describe("event totals", () => {
-  it("counts each runner and school once and orders races Reception → Y6, boys first", () => {
+  it("counts each runner and school once and orders races Reception → Y6, girls first", () => {
     const races = [race("y1g", "y1", "girls"), race("recb", "reception", "boys"), race("y1b", "y1", "boys")];
     const rows = [
       runner("y1g", 1, "Ashlands"),
@@ -142,8 +142,8 @@ describe("event totals", () => {
     ]);
     expect(summary.races.map((r) => [r.raceId, r.runnerCount])).toEqual([
       ["recb", 1],
-      ["y1b", 2],
       ["y1g", 2],
+      ["y1b", 2],
     ]);
   });
 

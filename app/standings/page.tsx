@@ -9,7 +9,7 @@ import { shortName } from "@/lib/eventSummary";
 export const dynamic = "force-dynamic";
 
 const YEAR_GROUPS: YearGroup[] = ["reception", "y1", "y2", "y3", "y4", "y5", "y6"];
-const GENDERS: Gender[] = ["boys", "girls"];
+const GENDERS: Gender[] = ["girls", "boys"];
 
 export default async function StandingsPage({
   searchParams,
@@ -20,7 +20,7 @@ export default async function StandingsPage({
   const allSeasons = await db.select().from(seasons);
   const seasonId = searchParams.seasonId ?? allSeasons[0]?.id;
   const yearGroup = (searchParams.yearGroup ?? "y3") as YearGroup;
-  const gender = (searchParams.gender ?? "boys") as Gender;
+  const gender = (searchParams.gender ?? "girls") as Gender;
 
   const standings = seasonId
     ? await getSeasonStandings(seasonId, yearGroup, gender)
